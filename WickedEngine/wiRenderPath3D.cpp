@@ -364,6 +364,10 @@ namespace wi
 		visibility_main.scene = scene;
 		visibility_main.camera = camera;
 		visibility_main.flags = wi::renderer::Visibility::ALLOW_EVERYTHING;
+		if (!getOcclusionCullingEnabled())
+		{
+			visibility_main.flags &= ~wi::renderer::Visibility::ALLOW_OCCLUSION_CULLING;
+		}
 		wi::renderer::UpdateVisibility(visibility_main);
 
 		if (visibility_main.planar_reflection_visible)
@@ -786,7 +790,7 @@ namespace wi
 				);
 			}
 
-			if (wi::renderer::GetDDGIEnabled())
+			if (wi::renderer::GetDDGIEnabled() && getSceneUpdateEnabled())
 			{
 				wi::renderer::DDGI(
 					*scene,
@@ -803,7 +807,7 @@ namespace wi
 			wi::renderer::DRAWSCENE_TESSELLATION |
 			wi::renderer::DRAWSCENE_OCCLUSIONCULLING |
 			wi::renderer::DRAWSCENE_MAINCAMERA
-		;
+			;
 
 		// Main camera depth prepass + occlusion culling:
 		cmd = device->BeginCommandList();
@@ -819,7 +823,10 @@ namespace wi
 				cmd
 			);
 
-			wi::renderer::OcclusionCulling_Reset(visibility_main, cmd); // must be outside renderpass!
+			if (getOcclusionCullingEnabled())
+			{
+				wi::renderer::OcclusionCulling_Reset(visibility_main, cmd); // must be outside renderpass!
+			}
 
 			wi::renderer::RefreshImpostors(*scene, cmd);
 
@@ -886,7 +893,10 @@ namespace wi
 
 			device->RenderPassEnd(cmd);
 
-			wi::renderer::OcclusionCulling_Resolve(visibility_main, cmd); // must be outside renderpass!
+			if (getOcclusionCullingEnabled())
+			{
+				wi::renderer::OcclusionCulling_Resolve(visibility_main, cmd); // must be outside renderpass!
+			}
 
 			});
 
@@ -1022,7 +1032,7 @@ namespace wi
 				});
 		}
 
-		if (wi::renderer::GetVXGIEnabled())
+		if (wi::renderer::GetVXGIEnabled() && getSceneUpdateEnabled())
 		{
 			cmd = device->BeginCommandList();
 			wi::jobsystem::Execute(ctx, [cmd, this](wi::jobsystem::JobArgs args) {
@@ -1031,19 +1041,22 @@ namespace wi
 		}
 
 		// Updating textures:
-		cmd = device->BeginCommandList();
-		device->WaitCommandList(cmd, cmd_prepareframe_async);
-		wi::jobsystem::Execute(ctx, [cmd, this](wi::jobsystem::JobArgs args) {
-			wi::renderer::BindCommonResources(cmd);
-			wi::renderer::BindCameraCB(
-				*camera,
-				camera_previous,
-				camera_reflection,
-				cmd
-			);
-			wi::renderer::RefreshLightmaps(*scene, cmd);
-			wi::renderer::RefreshEnvProbes(visibility_main, cmd);
-		});
+		if (getSceneUpdateEnabled())
+		{
+			cmd = device->BeginCommandList();
+			device->WaitCommandList(cmd, cmd_prepareframe_async);
+			wi::jobsystem::Execute(ctx, [cmd, this](wi::jobsystem::JobArgs args) {
+				wi::renderer::BindCommonResources(cmd);
+				wi::renderer::BindCameraCB(
+					*camera,
+					camera_previous,
+					camera_reflection,
+					cmd
+				);
+				wi::renderer::RefreshLightmaps(*scene, cmd);
+				wi::renderer::RefreshEnvProbes(visibility_main, cmd);
+			});
+		}
 
 		if (visibility_main.IsRequestedPlanarReflections())
 		{
@@ -1871,9 +1884,8 @@ namespace wi
 				RENDERPASS_MAIN,
 				cmd,
 				wi::renderer::DRAWSCENE_TRANSPARENT |
-				wi::renderer::DRAWSCENE_OCCLUSIONCULLING |
-				wi::renderer::DRAWSCENE_HAIRPARTICLE |
 				wi::renderer::DRAWSCENE_TESSELLATION |
+				wi::renderer::DRAWSCENE_OCCLUSIONCULLING |
 				wi::renderer::DRAWSCENE_OCEAN |
 				wi::renderer::DRAWSCENE_MAINCAMERA
 			);
