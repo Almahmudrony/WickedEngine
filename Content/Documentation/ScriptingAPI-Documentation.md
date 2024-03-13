@@ -63,6 +63,7 @@ This is a reference and explanation of Lua scripting features in Wicked Engine.
 	14. [Path finding](#path-finding)
 		1. [VoxelGrid](#voxelgrid)
 		2. [PathQuery](#pathquery)
+	15. [TrailRenderer](#trailrenderer)
 		
 ## Introduction and usage
 Scripting in Wicked Engine is powered by Lua, meaning that the user can make use of the 
@@ -158,6 +159,7 @@ You can use the Renderer with the following functions, all of which are in the g
 	[outer]DEBUG_TEXT_CAMERA_SCALING	-- text will be always the same size, independent of distance to camera
 - DrawVoxelGrid(VoxelGrid voxelgrid) -- draws the voxel grid in the debug rendering phase. VoxelGrid object must not be destroyed until then!
 - DrawPathQuery(PathQuery pathquery) -- draws the path query in the debug rendering phase. PathQuery object must not be destroyed until then!
+- DrawTrail(TrailRenderer trail) -- draws the trail in the debug rendering phase. TrailRenderer object must not be destroyed until then!
 - PutWaterRipple(Vector position) -- put down a water ripple with default embedded asset
 - PutWaterRipple(string imagename, Vector position) -- put down water ripple texture from image asset file
 - ClearWorld(opt Scene scene) -- Clears the scene and the associated renderer resources. If parmaeter is not specified, it will clear the global scene
@@ -649,6 +651,7 @@ The scene holds components. Entity handles can be used to retrieve associated co
 - [outer]FILTER_COLLIDER : uint	-- include colliders
 - [outer]FILTER_ALL : uint	-- include everything
 - Intersects(Ray|Sphere|Capsule primitive, opt uint filterMask = ~0u, opt uint layerMask = ~0u, opt uint lod = 0) : int entity, Vector position,normal, float distance, Vector velocity, int subsetIndex, Matrix orientation	-- intersects a primitive with the scene and returns collision parameters
+- IntersectsFirst(Ray primitive, opt uint filterMask = ~0u, opt uint layerMask = ~0u, opt uint lod = 0) : bool	-- intersects a primitive with the scene and returns true immediately on intersection, false if there was no intersection. This can be faster for occlusion check than regular `Intersects` that searches for closest intersection.
 - Update()  -- updates the scene and every entity and component inside the scene
 - Clear()  -- deletes every entity and component inside the scene
 - Merge(Scene other)  -- moves contents from an other scene into this one. The other scene will be empty after this operation (contents are moved, not copied)
@@ -1301,6 +1304,10 @@ Describes a Collider object.
 - SetLookAt(Vector value)	-- Set a target lookAt position (for head an eyes movement)
 - SetRagdollPhysicsEnabled(bool value) -- Activate dynamic ragdoll physics. Note that kinematic ragdoll physics is always active (ragdoll is animation-driven/kinematic by default).
 - IsRagdollPhysicsEnabled() : bool
+- SetRagdollFatness(float value) -- Control the overall fatness of the ragdoll body parts except head (default: 1)
+- SetRagdollHeadSize(float value) -- Control the overall size of the ragdoll head (default: 1)
+- GetRagdollFatness() : float
+- GetRagdollHeadSize() : float
 
 [outer] HumanoidBone = {
 	Hips = 0,
@@ -1797,3 +1804,28 @@ Path finding operations can be made by using a voxel grid and path queries. The 
 - GetAgentHeight(int value) : int
 - GetWaypointCount() : int -- returns the number of waypoints that were computed in Process()
 - GetWaypoint(int index) : Vector returns the waypoint at specified index (direction: start -> goal)
+
+### TrailRenderer
+- [constructor] TrailRenderer()
+- AddPoint(Vector pos, opt float width = 1, opt Vector color = Vector(1,1,1,1)) -- adds a new point to the trail
+- Cut() -- cuts the trail at last point and starts a new trail
+- Clear() -- removes all points and cuts from the trail
+- GetPointCount() : int -- returns the number of points in the trail
+- GetPoint() : Vector pos, float width -- returns the point of the trail on the specified index
+- SetPoint(Vector pos, opt float width = 1, opt Vector color = Vector(1,1,1,1)) -- sets the point parameters on the specified index
+- SetBlendMode(int blendmode) -- set blend mode of the whole trail
+- GetBlendMode() : int
+- SetSubdivision(int subdiv) -- set the subdivision amount of the whole trail
+- GetSubdivision() : int
+- SetWidth(float width) -- set the width of the whole trail
+- GetWidth() : float
+- SetColor(Vector color) -- set the color of the whole trail
+- GetColor() : Vector
+- SetTexture(Texture tex) -- set the texture of the whole trail
+- GetTexture() : Texture
+- SetTexture2(Texture tex) -- set the texture2 of the whole trail
+- GetTexture2() : Texture
+- SetTexMulAdd(Texture tex) -- set the texture UV tiling multiply-add value of the whole trail
+- GetTexMulAdd() : Texture
+- SetTexMulAdd2(Texture tex) -- set the texture2 UV tiling multiply-add value of the whole trail
+- GetTexMulAdd2() : Texture
