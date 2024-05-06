@@ -160,10 +160,25 @@ You can use the Renderer with the following functions, all of which are in the g
 - DrawVoxelGrid(VoxelGrid voxelgrid) -- draws the voxel grid in the debug rendering phase. VoxelGrid object must not be destroyed until then!
 - DrawPathQuery(PathQuery pathquery) -- draws the path query in the debug rendering phase. PathQuery object must not be destroyed until then!
 - DrawTrail(TrailRenderer trail) -- draws the trail in the debug rendering phase. TrailRenderer object must not be destroyed until then!
+- PaintIntoTexture(PaintTextureParams params)
+- CreatePaintableTexture(int width,height, opt int mips = 0, opt Vector initialColor = Vector()) -- creates a texture that can be used for destination of PaintIntoTexture()
 - PutWaterRipple(Vector position) -- put down a water ripple with default embedded asset
 - PutWaterRipple(string imagename, Vector position) -- put down water ripple texture from image asset file
 - ClearWorld(opt Scene scene) -- Clears the scene and the associated renderer resources. If parmaeter is not specified, it will clear the global scene
 - ReloadShaders()
+
+#### PaintTextureParams
+- [constructor]PaintTextureParams
+- SetEditTexture(Texture tex)
+- SetBrushTexture(Texture tex)
+- SetRevealTexture(Texture tex)
+- SetBrushColor(Vector value)
+- SetCenterPixel(Vector value)
+- SetBrushRadius(int value)
+- SetBrushAmount(float value)
+- SetBrushSmoothness(float value)
+- SetBrushRotation(float value)
+- SetBrushShape(int value) -- 0 = circle, 1 = rectangle
 
 ### Sprite
 Render images on the screen.
@@ -240,6 +255,8 @@ Specify Sprite properties, like position, size, etc.
 - DisableMirror()
 - EnableBackgroundBlur(opt float mip = 0)
 - DisableBackgroundBlur()
+- SetMaskAlphaRange(float start, end)
+- GetMaskAlphaRange() : float start, end
 
 - [outer]STENCILMODE_DISABLED : int
 - [outer]STENCILMODE_EQUAL : int
@@ -472,11 +489,13 @@ Loads and plays an audio files.
 #### Sound
 An audio file. Can be instanced several times via SoundInstance.
 - [constructor]Sound()  -- creates an empty sound. Use the audio device to load sounds from files
+- [constructor]Sound(string name)  -- loads a sound from a file
 - IsValid() : bool -- returns whether the sound was created successfully
 
 #### SoundInstance
 An audio file instance that can be played. Note: after modifying parameters of the SoundInstance, the SoundInstance will need to be recreated from a specified sound
 - [constructor]SoundInstance()  -- creates an empty soundinstance. Use the audio device to clone sounds
+- [constructor]SoundInstance(Sound sound, opt float begin,length)  -- creates a soundinstance from a sound
 - SetSubmixType(int submixtype)  -- set a submix type group (default is SUBMIX_TYPE_SOUNDEFFECT)
 - SetBegin(float seconds) -- beginning of the playback in seconds, relative to the Sound it will be created from (0 = from beginning)
 - SetLength(float seconds) -- length in seconds (0 = until end)
@@ -587,6 +606,7 @@ A four component floating point vector. Provides efficient calculations with SIM
 - Cross(Vector v1,v2) : Vector result
 - Lerp(Vector v1,v2, float t) : Vector result
 - Rotate(Vector v1,quaternion) : Vector result -- rotates the first argument 3D vector with the second argument quaternion
+- QuaternionIdentity() : Vector resultQuaternion -- return a quaternion representing identity orientation
 - QuaternionInverse(Vector quaternion) : Vector resultQuaternion
 - QuaternionMultiply(Vector quaternion1,quaternion2) : Vector resultQuaternion
 - QuaternionFromRollPitchYaw(Vector rotXYZ) : Vector resultQuaternion
@@ -650,7 +670,7 @@ The scene holds components. Entity handles can be used to retrieve associated co
 - [outer]FILTER_OBJECT_ALL : uint	-- include all objects, meshes
 - [outer]FILTER_COLLIDER : uint	-- include colliders
 - [outer]FILTER_ALL : uint	-- include everything
-- Intersects(Ray|Sphere|Capsule primitive, opt uint filterMask = ~0u, opt uint layerMask = ~0u, opt uint lod = 0) : int entity, Vector position,normal, float distance, Vector velocity, int subsetIndex, Matrix orientation	-- intersects a primitive with the scene and returns collision parameters
+- Intersects(Ray|Sphere|Capsule primitive, opt uint filterMask = ~0u, opt uint layerMask = ~0u, opt uint lod = 0) : int entity, Vector position,normal, float distance, Vector velocity, int subsetIndex, Matrix orientation, Vector uv	-- intersects a primitive with the scene and returns collision parameters
 - IntersectsFirst(Ray primitive, opt uint filterMask = ~0u, opt uint layerMask = ~0u, opt uint lod = 0) : bool	-- intersects a primitive with the scene and returns true immediately on intersection, false if there was no intersection. This can be faster for occlusion check than regular `Intersects` that searches for closest intersection.
 - Update()  -- updates the scene and every entity and component inside the scene
 - Clear()  -- deletes every entity and component inside the scene
@@ -719,6 +739,7 @@ The scene holds components. Entity handles can be used to retrieve associated co
 - Component_GetEmitterArray() : EmitterComponent[] result  -- returns the array of all components of this type
 - Component_GetLightArray() : LightComponent[] result  -- returns the array of all components of this type
 - Component_GetObjectArray() : ObjectComponent[] result  -- returns the array of all components of this type
+- Component_GetMeshArray() : MeshComponent[] result  -- returns the array of all components of this type
 - Component_GetInverseKinematicsArray() : InverseKinematicsComponent[] result  -- returns the array of all components of this type
 - Component_GetSpringArray() : SpringComponent[] result  -- returns the array of all components of this type
 - Component_GetScriptArray() : ScriptComponent[] result  -- returns the array of all components of this type
@@ -745,6 +766,7 @@ The scene holds components. Entity handles can be used to retrieve associated co
 - Entity_GetEmitterArray() : Entity[] result  -- returns the array of all entities that have this component type
 - Entity_GetLightArray() : Entity[] result  -- returns the array of all entities that have this component type
 - Entity_GetObjectArray() : Entity[] result  -- returns the array of all entities that have this component type
+- Entity_GetMeshArray() : Entity[] result  -- returns the array of all entities that have this component type
 - Entity_GetInverseKinematicsArray() : Entity[] result  -- returns the array of all entities that have this component type
 - Entity_GetSpringArray() : Entity[] result  -- returns the array of all entities that have this component type
 - Entity_GetScriptArray() : Entity[] result  -- returns the array of all entities that have this component type
@@ -948,6 +970,8 @@ Describes an orientation in 3D space.
 - GetTexture(TextureSlot slot) : Texture
 - GetTextureName(TextureSlot slot) : string
 - GetTextureUVSet(TextureSlot slot) : int uvset
+- SetCastShadow(bool value)
+- IsCastingShadow() : bool
 
 ```lua
 TextureSlot = {
@@ -977,6 +1001,7 @@ TextureSlot = {
 
 - SetMeshSubsetMaterialID(int subsetindex, Entity materialID)
 - GetMeshSubsetMaterialID(int subsetindex) : Entity entity
+- CreateSubset() : int -- creates subset containing all faces, returns subset index
 
 #### EmitterComponent
 - _flags : int
@@ -1019,6 +1044,8 @@ TextureSlot = {
 - SetScaleY(float value)  -- set scaling along lifetime in Y axis
 - SetRotation(float value)  -- set rotation speed
 - SetMotionBlurAmount(float value)  -- set the motion elongation factor
+- SetCollidersDisabled(bool value) -- disable GPU colliders
+- IsCollidersDisabled()
 
 #### HairParticleSystem
 - _flags : int
@@ -1235,6 +1262,10 @@ Describes a Sound object.
 - IsPlaying() : bool result -- Check if sound is playing
 - IsLooped() : bool result -- Check if sound is looping
 - IsDisabled() : bool result -- Check if sound is disabled
+- SetSound(Sound sound)
+- SetSoundInstance(SoundInstance inst)
+- GetSound() : Sound
+- GetSoundInstance() : SoundInstance
 
 #### ColliderComponent
 Describes a Collider object.
@@ -1400,7 +1431,7 @@ This is the main entry point and manages the lifetime of the application.
 - [void-constructor]Application()
 - GetContent() : Resource? result
 - GetActivePath() : RenderPath? result
-- SetActivePath(RenderPath path, opt float fadeSeconds,fadeColorR,fadeColorG,fadeColorB)
+- SetActivePath(RenderPath path, opt float fadeSeconds, opt int fadeColorR = 0, fadeColorG = 0, fadeColorB = 0)
 - SetFrameSkip(bool enabled)	-- enable/disable frame skipping in fixed update 
 - SetTargetFrameRate(float fps)	-- set target frame rate for fixed update and variable rate update when frame rate is locked
 - SetFrameRateLock(bool enabled)	-- if enabled, variable rate update will use a fixed delta time
@@ -1416,6 +1447,7 @@ This is the main entry point and manages the lifetime of the application.
 - GetCanvas() : Canvas canvas  -- returns a copy of the application's current canvas
 - SetCanvas(Canvas canvas)  -- applies the specified canvas to the application
 - Exit() -- Closes the program
+- IsFaded() -- returns true when fadeout is full (fadeout can be set when switching paths with SetActivePath())
 - [outer]SetProfilerEnabled(bool enabled)
 
 ### RenderPath
@@ -1453,6 +1485,7 @@ It inherits functions from RenderPath2D, so it can render a 2D overlay.
 	- AO_MSAO : int  -- enable multi scale screen space ambient occlusion (use in SetAO() function)
 - SetAOPower(float value)  -- applies AO power value if any AO is enabled
 - SetSSREnabled(bool value)
+- SetSSGIEnabled(bool value)
 - SetRaytracedDiffuseEnabled(bool value)
 - SetRaytracedReflectionsEnabled(bool value)
 - SetShadowsEnabled(bool value)
@@ -1507,8 +1540,13 @@ Tonemap = {
 It is a RenderPath2D but one that internally manages resource loading and can display information about the process.
 It inherits functions from RenderPath2D.
 - [constructor]LoadingScreen()
-- AddLoadingTask(string taskScript)
-- OnFinished(string taskScript)
+- AddLoadModelTask(string fileName, Matrix matrix) : Entity -- Adds a scene loading task into the global scene and returns the root entity handle immediately. The loading task will be started asynchronously when the LoadingScreen is activated by the Application.
+- AddLoadModelTask(Scene scene, string fileName, Matrix matrix) : Entity -- Adds a scene loading task into the specified scene and returns the root entity handle immediately. The loading task will be started asynchronously when the LoadingScreen is activated by the Application.
+- AddRenderPathActivationTask(RenderPath path, opt float fadeSeconds = 0, opt int fadeR = 0,fadeG = 0,fadeB = 0) -- loads resources of a RenderPath and activates it after all loading tasks have finished
+- IsFinished() : bool -- returns true when all loading tasks have finished
+- GetProgress() : int -- returns percentage of loading complete (0% - 100%)
+- SetBackgroundTexture(Texture tex) -- set a full screen background texture that wil be displayed when loading screen is active
+- GetBackgroundTexture() : Texture
 
 ### Primitives
 
@@ -1793,6 +1831,7 @@ Path finding operations can be made by using a voxel grid and path queries. The 
 #### PathQuery
 - [constructor] PathQuery()
 - Process(Vector start,goal, VoxelGrid voxelgrid) -- computes the path from start to goal on a voxel grid and stores the result
+- SearchCover(Vector observer,subject,direction, float max_distance, VoxelGrid voxelgrid) -- searches for a cover for subject position to hide from observer. The search will be in a specific direction, within the specified distance (approximately, within voxel precision)
 - IsSuccesful() : bool -- returns whether the last call to Process() was succesfully able to find a path
 - GetNextWaypoint() : Vector -- Get the next waypoint on the path from the starting location. This requires that Process() has been called beforehand.
 - SetDebugDrawWaypointsEnabled(bool value) -- Enable/disable waypoint debug rendering when using DrawPathQuery(). If enabled, voxel waypoints will be drawn in blue, simplified voxel waypoints will be drawn in pink 
@@ -1803,7 +1842,8 @@ Path finding operations can be made by using a voxel grid and path queries. The 
 - SetAgentHeight(int value) -- Set the navigation height requirement in voxels. This means how many voxels the query will keep away from obstacles vertically.
 - GetAgentHeight(int value) : int
 - GetWaypointCount() : int -- returns the number of waypoints that were computed in Process()
-- GetWaypoint(int index) : Vector returns the waypoint at specified index (direction: start -> goal)
+- GetWaypoint(int index) : Vector -- returns the waypoint at specified index (direction: start -> goal)
+- GetGoal() : Vector -- returns goal position
 
 ### TrailRenderer
 - [constructor] TrailRenderer()

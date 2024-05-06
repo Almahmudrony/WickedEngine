@@ -38,6 +38,7 @@ enum class FileType
 	GLTF,
 	GLB,
 	VRM,
+	FBX,
 	IMAGE,
 	VIDEO,
 	SOUND,
@@ -49,6 +50,7 @@ static wi::unordered_map<std::string, FileType> filetypes = {
 	{"GLTF", FileType::GLTF},
 	{"GLB", FileType::GLB},
 	{"VRM", FileType::VRM},
+	{"FBX", FileType::FBX},
 };
 
 void Editor::Initialize()
@@ -213,6 +215,9 @@ void EditorComponent::ResizeLayout()
 	aboutWindow.SetSize(XMFLOAT2(screenW / 2.0f, screenH / 1.5f));
 	aboutWindow.SetPos(XMFLOAT2(screenW / 2.0f - aboutWindow.scale.x / 2.0f, screenH / 2.0f - aboutWindow.scale.y / 2.0f));
 
+	contentBrowserWnd.SetSize(XMFLOAT2(screenW / 1.6f, screenH / 1.2f));
+	contentBrowserWnd.SetPos(XMFLOAT2(screenW / 2.0f - contentBrowserWnd.scale.x / 2.0f, screenH / 2.0f - contentBrowserWnd.scale.y / 2.0f));
+
 }
 void EditorComponent::Load()
 {
@@ -375,7 +380,7 @@ void EditorComponent::Load()
 	openButton.SetLocalizationEnabled(wi::gui::LocalizationEnabled::Tooltip);
 	openButton.SetShadowRadius(2);
 	openButton.font.params.shadowColor = wi::Color::Transparent();
-	openButton.SetTooltip("Open a scene, import a model or execute a Lua script...\nSupported file types: .wiscene, .obj, .gltf, .glb, .vrm, .lua");
+	openButton.SetTooltip("Open a scene, import an asset or execute a Lua script...\nSupported file types: .wiscene, .obj, .gltf, .glb, .vrm, .fbx, .lua, images, videos, sounds, etc.");
 #ifdef PLATFORM_WINDOWS_DESKTOP
 	openButton.SetTooltip(openButton.GetTooltip() + "\nYou can also drag and drop a file onto the window to open it in the Editor.");
 #endif // PLATFORM_WINDOWS_DESKTOP
@@ -384,12 +389,13 @@ void EditorComponent::Load()
 	openButton.OnClick([&](wi::gui::EventArgs args) {
 		wi::helper::FileDialogParams params;
 		params.type = wi::helper::FileDialogParams::OPEN;
-		params.description = ".wiscene, .obj, .gltf, .glb, .vrm, .lua, .mp4, .png, ...";
+		params.description = ".wiscene, .obj, .gltf, .glb, .vrm, .fbx, .lua, .mp4, .png, ...";
 		params.extensions.push_back("wiscene");
 		params.extensions.push_back("obj");
 		params.extensions.push_back("gltf");
 		params.extensions.push_back("glb");
 		params.extensions.push_back("vrm");
+		params.extensions.push_back("fbx");
 		params.extensions.push_back("lua");
 		auto ext_video = wi::resourcemanager::GetSupportedVideoExtensions();
 		for (auto& x : ext_video)
@@ -413,6 +419,23 @@ void EditorComponent::Load()
 			});
 		});
 	GetGUI().AddWidget(&openButton);
+
+
+	contentBrowserButton.Create("Content Browser");
+	contentBrowserButton.SetLocalizationEnabled(wi::gui::LocalizationEnabled::Tooltip);
+	contentBrowserButton.SetShadowRadius(2);
+	contentBrowserButton.font.params.shadowColor = wi::Color::Transparent();
+	contentBrowserButton.SetTooltip("Browse content.");
+	contentBrowserButton.SetColor(wi::Color(50, 100, 255, 180), wi::gui::WIDGETSTATE::IDLE);
+	contentBrowserButton.SetColor(wi::Color(120, 160, 255, 255), wi::gui::WIDGETSTATE::FOCUS);
+	contentBrowserButton.OnClick([&](wi::gui::EventArgs args) {
+		contentBrowserWnd.SetVisible(!contentBrowserWnd.IsVisible());
+		if (contentBrowserWnd.IsVisible())
+		{
+			contentBrowserWnd.RefreshContent();
+		}
+	});
+	GetGUI().AddWidget(&contentBrowserButton);
 
 
 	logButton.Create("Backlog");
@@ -574,7 +597,7 @@ void EditorComponent::Load()
 		ss += "\nTips\n";
 		ss += "-------\n";
 		ss += "You can find sample scenes in the Content/models directory. Try to load one.\n";
-		ss += "You can also import models from .OBJ, .GLTF, .GLB, .VRM files.\n";
+		ss += "You can also import models from .OBJ, .GLTF, .GLB, .VRM, .FBX files.\n";
 		ss += "You can find a program configuration file at Editor/config.ini\n";
 		ss += "You can find sample LUA scripts in the Content/scripts directory. Try to load one.\n";
 		ss += "You can find a startup script in startup.lua (this will be executed on program start, if exists)\n";
@@ -659,6 +682,9 @@ void EditorComponent::Load()
 	profilerWnd.Create();
 	GetGUI().AddWidget(&profilerWnd);
 
+	contentBrowserWnd.Create(this);
+	GetGUI().AddWidget(&contentBrowserWnd);
+
 	std::string theme = main->config.GetSection("options").GetText("theme");
 	if(theme.empty())
 	{
@@ -693,6 +719,25 @@ void EditorComponent::Load()
 		wi::helper::FileRead(filename, font_datas.back().filedata);
 	};
 	wi::helper::GetFileNamesInDirectory("fonts/", load_font, "TTF");
+
+	{
+		size_t current_recent = 0;
+		auto& recent = main->config.GetSection("recent");
+		while (recent.Has(std::to_string(current_recent).c_str()))
+		{
+			recentFilenames.push_back(recent.GetText(std::to_string(current_recent).c_str()));
+			current_recent++;
+		}
+	}
+	{
+		size_t current_recent = 0;
+		auto& recent = main->config.GetSection("recent_folders");
+		while (recent.Has(std::to_string(current_recent).c_str()))
+		{
+			recentFolders.push_back(recent.GetText(std::to_string(current_recent).c_str()));
+			current_recent++;
+		}
+	}
 
 	RenderPath2D::Load();
 }
@@ -3609,7 +3654,60 @@ void EditorComponent::ConsumeHistoryOperation(bool undo)
 	optionsWnd.RefreshEntityTree();
 }
 
-void EditorComponent::Open(const std::string& filename)
+void EditorComponent::RegisterRecentlyUsed(const std::string& filename)
+{
+	{
+		for (size_t i = 0; i < recentFilenames.size();)
+		{
+			if (recentFilenames[i].compare(filename) == 0)
+			{
+				recentFilenames.erase(recentFilenames.begin() + i);
+			}
+			else
+			{
+				i++;
+			}
+		}
+		while (recentFilenames.size() >= maxRecentFilenames)
+		{
+			recentFilenames.erase(recentFilenames.begin());
+		}
+		recentFilenames.push_back(filename);
+		auto& recent = main->config.GetSection("recent");
+		for (size_t i = 0; i < recentFilenames.size(); ++i)
+		{
+			recent.Set(std::to_string(i).c_str(), recentFilenames[i]);
+		}
+	}
+	{
+		std::string folder = wi::helper::GetDirectoryFromPath(filename);
+		for (size_t i = 0; i < recentFolders.size();)
+		{
+			if (recentFolders[i].compare(folder) == 0)
+			{
+				recentFolders.erase(recentFolders.begin() + i);
+			}
+			else
+			{
+				i++;
+			}
+		}
+		while (recentFolders.size() >= maxRecentFolders)
+		{
+			recentFolders.erase(recentFolders.begin());
+		}
+		recentFolders.push_back(folder);
+		auto& recent = main->config.GetSection("recent_folders");
+		for (size_t i = 0; i < recentFolders.size(); ++i)
+		{
+			recent.Set(std::to_string(i).c_str(), recentFolders[i]);
+		}
+	}
+	main->config.Commit();
+	contentBrowserWnd.RefreshContent();
+}
+
+void EditorComponent::Open(std::string filename)
 {
 	std::string extension = wi::helper::toUpper(wi::helper::GetExtensionFromFileName(filename));
 
@@ -3630,6 +3728,7 @@ void EditorComponent::Open(const std::string& filename)
 		playButton.SetScriptTip("dofile(\"" + last_script_path + "\")");
 		wi::lua::RunFile(filename);
 		optionsWnd.RefreshEntityTree();
+		RegisterRecentlyUsed(filename);
 		return;
 	}
 	if (type == FileType::VIDEO)
@@ -3667,6 +3766,8 @@ void EditorComponent::Open(const std::string& filename)
 		return;
 	}
 
+	RegisterRecentlyUsed(filename);
+
 	size_t camera_count_prev = GetCurrentScene().cameras.GetCount();
 
 	main->loader.addLoadingFunction([=](wi::jobsystem::JobArgs args) {
@@ -3691,6 +3792,12 @@ void EditorComponent::Open(const std::string& filename)
 		{
 			Scene scene;
 			ImportModel_GLTF(filename, scene);
+			GetCurrentScene().Merge(scene);
+		}
+		else if (type == FileType::FBX)
+		{
+			Scene scene;
+			ImportModel_FBX(filename, scene);
 			GetCurrentScene().Merge(scene);
 		}
 	});
@@ -3760,6 +3867,8 @@ void EditorComponent::Save(const std::string& filename)
 		wi::Archive archive = dump_to_header ? wi::Archive() : wi::Archive(filename, false);
 		if (archive.IsOpen())
 		{
+			archive.SetThumbnailAndResetPos(CreateThumbnailScreenshot());
+
 			Scene& scene = GetCurrentScene();
 
 			wi::resourcemanager::Mode embed_mode = (wi::resourcemanager::Mode)optionsWnd.generalWnd.saveModeComboBox.GetItemUserData(optionsWnd.generalWnd.saveModeComboBox.GetSelected());
@@ -3785,6 +3894,8 @@ void EditorComponent::Save(const std::string& filename)
 
 	GetCurrentEditorScene().path = filename;
 	RefreshSceneList();
+
+	RegisterRecentlyUsed(filename);
 
 	PostSaveText("Scene saved: ", GetCurrentEditorScene().path);
 }
@@ -3813,6 +3924,93 @@ void EditorComponent::SaveAs()
 			Save(filename);
 			});
 		});
+}
+
+Texture EditorComponent::CreateThumbnailScreenshot() const
+{
+	GraphicsDevice* device = GetDevice();
+	CommandList cmd = device->BeginCommandList();
+	static const uint32_t target_width = 256;
+	static const uint32_t target_height = 128;
+
+	Texture thumbnail = *renderPath->GetLastPostprocessRT();
+
+	// Overestimate actual size with aspect (note that downscale factor will be 4x later):
+	uint32_t current_width = target_width;
+	uint32_t current_height = target_height;
+	while (current_width < thumbnail.desc.width || current_height < thumbnail.desc.height)
+	{
+		current_width *= 4;
+		current_height *= 4;
+	}
+
+	// Crop target:
+	{
+		TextureDesc desc = thumbnail.desc;
+		desc.width = current_width;
+		desc.height = current_height;
+		desc.bind_flags = BindFlag::SHADER_RESOURCE | BindFlag::RENDER_TARGET | BindFlag::UNORDERED_ACCESS;
+		Texture upsized;
+		device->CreateTexture(&desc, nullptr, &upsized);
+
+		Viewport vp;
+		vp.width = (float)desc.width;
+		vp.height = (float)desc.height;
+		device->BindViewports(1, &vp, cmd);
+
+		RenderPassImage rp = RenderPassImage::RenderTarget(&upsized, RenderPassImage::LoadOp::CLEAR);
+		device->RenderPassBegin(&rp, 1, cmd);
+
+		wi::Canvas canvas;
+		canvas.width = desc.width;
+		canvas.height = desc.height;
+		wi::image::SetCanvas(canvas);
+
+		wi::image::Params fx;
+		fx.blendFlag = wi::enums::BLENDMODE_OPAQUE;
+
+		const float canvas_aspect = canvas.GetLogicalWidth() / canvas.GetLogicalHeight();
+		const float image_aspect = float(thumbnail.desc.width) / float(thumbnail.desc.height);
+
+		if (canvas_aspect > image_aspect)
+		{
+			// display aspect is wider than image:
+			fx.siz.x = canvas.GetLogicalWidth();
+			fx.siz.y = canvas.GetLogicalHeight() / image_aspect * canvas_aspect;
+		}
+		else
+		{
+			// image aspect is wider or equal to display
+			fx.siz.x = canvas.GetLogicalWidth() / canvas_aspect * image_aspect;
+			fx.siz.y = canvas.GetLogicalHeight();
+		}
+
+		fx.pos = XMFLOAT3(canvas.GetLogicalWidth() * 0.5f, canvas.GetLogicalHeight() * 0.5f, 0);
+		fx.pivot = XMFLOAT2(0.5f, 0.5f);
+
+		wi::image::Draw(&thumbnail, fx, cmd);
+
+		device->RenderPassEnd(cmd);
+
+		wi::image::SetCanvas(*this);
+
+		thumbnail = upsized;
+	}
+
+	// Downsize until target size is reached:
+	while (thumbnail.desc.width > target_width || thumbnail.desc.height > target_height)
+	{
+		TextureDesc desc = thumbnail.desc;
+		desc.width = std::max(target_width, desc.width / 4u);
+		desc.height = std::max(target_height, desc.height / 4u);
+		desc.bind_flags = BindFlag::SHADER_RESOURCE | BindFlag::RENDER_TARGET | BindFlag::UNORDERED_ACCESS;
+		Texture downsized;
+		device->CreateTexture(&desc, nullptr, &downsized);
+		wi::renderer::Postprocess_Downsample4x(thumbnail, downsized, cmd);
+		thumbnail = downsized;
+	}
+
+	return thumbnail;
 }
 
 void EditorComponent::PostSaveText(const std::string& message, const std::string& filename, float time_seconds)
@@ -3896,6 +4094,18 @@ void EditorComponent::UpdateTopMenuAnimation()
 	{
 		openButton.SetText(openButton.GetState() > wi::gui::WIDGETSTATE::IDLE ? ICON_OPEN " Open" : ICON_OPEN);
 	}
+
+	if (contentBrowserButton.GetState() > wi::gui::WIDGETSTATE::IDLE && current_localization.Get((size_t)EditorLocalization::ContentBrowser) != nullptr)
+	{
+		tmp = ICON_CONTENT_BROWSER " ";
+		tmp += current_localization.Get((size_t)EditorLocalization::ContentBrowser);
+		contentBrowserButton.SetText(tmp);
+	}
+	else
+	{
+		contentBrowserButton.SetText(contentBrowserButton.GetState() > wi::gui::WIDGETSTATE::IDLE ? ICON_CONTENT_BROWSER " Content" : ICON_CONTENT_BROWSER);
+	}
+
 
 	if (logButton.GetState() > wi::gui::WIDGETSTATE::IDLE && current_localization.Get((size_t)EditorLocalization::Backlog) != nullptr)
 	{
@@ -3997,6 +4207,7 @@ void EditorComponent::UpdateTopMenuAnimation()
 	profilerButton.SetSize(XMFLOAT2(wi::math::Lerp(profilerButton.GetSize().x, profilerButton.GetState() > wi::gui::WIDGETSTATE::IDLE ? wid_focus : wid_idle, lerp), hei));
 	cinemaButton.SetSize(XMFLOAT2(wi::math::Lerp(cinemaButton.GetSize().x, cinemaButton.GetState() > wi::gui::WIDGETSTATE::IDLE ? wid_focus : wid_idle, lerp), hei));
 	logButton.SetSize(XMFLOAT2(wi::math::Lerp(logButton.GetSize().x, logButton.GetState() > wi::gui::WIDGETSTATE::IDLE ? wid_focus : wid_idle, lerp), hei));
+	contentBrowserButton.SetSize(XMFLOAT2(wi::math::Lerp(contentBrowserButton.GetSize().x, contentBrowserButton.GetState() > wi::gui::WIDGETSTATE::IDLE ? wid_focus : wid_idle, lerp), hei));
 	openButton.SetSize(XMFLOAT2(wi::math::Lerp(openButton.GetSize().x, openButton.GetState() > wi::gui::WIDGETSTATE::IDLE ? wid_focus : wid_idle, lerp), hei));
 	saveButton.SetSize(XMFLOAT2(wi::math::Lerp(saveButton.GetSize().x, saveButton.GetState() > wi::gui::WIDGETSTATE::IDLE ? wid_focus : wid_idle, lerp), hei));
 
@@ -4007,11 +4218,12 @@ void EditorComponent::UpdateTopMenuAnimation()
 	cinemaButton.SetPos(XMFLOAT2(fullscreenButton.GetPos().x - cinemaButton.GetSize().x - padding, 0));
 	profilerButton.SetPos(XMFLOAT2(cinemaButton.GetPos().x - profilerButton.GetSize().x - padding, 0));
 	logButton.SetPos(XMFLOAT2(profilerButton.GetPos().x - logButton.GetSize().x - padding, 0));
-	openButton.SetPos(XMFLOAT2(logButton.GetPos().x - openButton.GetSize().x - padding, 0));
+	contentBrowserButton.SetPos(XMFLOAT2(logButton.GetPos().x - contentBrowserButton.GetSize().x - padding, 0));
+	openButton.SetPos(XMFLOAT2(contentBrowserButton.GetPos().x - openButton.GetSize().x - padding, 0));
 	saveButton.SetPos(XMFLOAT2(openButton.GetPos().x - saveButton.GetSize().x - padding, 0));
 
 
-	float static_pos = screenW - wid_idle * 11;
+	float static_pos = screenW - wid_idle * 12;
 
 	dummyButton.SetSize(XMFLOAT2(wid_idle * 0.75f, hei));
 	dummyButton.SetPos(XMFLOAT2(static_pos - dummyButton.GetSize().x - 20, 0));

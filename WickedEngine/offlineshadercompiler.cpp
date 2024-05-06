@@ -67,17 +67,20 @@ wi::vector<ShaderEntry> shaders = {
 	{"ffx-fsr2/ffx_fsr2_accumulate_pass", wi::graphics::ShaderStage::CS},
 	{"ffx-fsr2/ffx_fsr2_rcas_pass", wi::graphics::ShaderStage::CS},
 	{"ssaoCS", wi::graphics::ShaderStage::CS},
+	{"ssgi_deinterleaveCS", wi::graphics::ShaderStage::CS},
+	{"ssgiCS", wi::graphics::ShaderStage::CS},
+	{"ssgi_upsampleCS", wi::graphics::ShaderStage::CS},
 	{"rtdiffuseCS", wi::graphics::ShaderStage::CS, wi::graphics::ShaderModel::SM_6_5},
 	{"rtdiffuse_spatialCS", wi::graphics::ShaderStage::CS},
 	{"rtdiffuse_temporalCS", wi::graphics::ShaderStage::CS},
-	{"rtdiffuse_bilateralCS", wi::graphics::ShaderStage::CS},
+	{"rtdiffuse_upsampleCS", wi::graphics::ShaderStage::CS},
 	{"rtreflectionCS", wi::graphics::ShaderStage::CS, wi::graphics::ShaderModel::SM_6_5},
 	{"ssr_tileMaxRoughness_horizontalCS", wi::graphics::ShaderStage::CS},
 	{"ssr_tileMaxRoughness_verticalCS", wi::graphics::ShaderStage::CS},
 	{"ssr_depthHierarchyCS", wi::graphics::ShaderStage::CS},
 	{"ssr_resolveCS", wi::graphics::ShaderStage::CS},
 	{"ssr_temporalCS", wi::graphics::ShaderStage::CS},
-	{"ssr_bilateralCS", wi::graphics::ShaderStage::CS},
+	{"ssr_upsampleCS", wi::graphics::ShaderStage::CS},
 	{"ssr_raytraceCS", wi::graphics::ShaderStage::CS},
 	{"ssr_raytraceCS_cheap", wi::graphics::ShaderStage::CS},
 	{"ssr_raytraceCS_earlyexit", wi::graphics::ShaderStage::CS},
@@ -188,12 +191,12 @@ wi::vector<ShaderEntry> shaders = {
 	{"skyAtmosphere_skyViewLutCS", wi::graphics::ShaderStage::CS },
 	{"skyAtmosphere_multiScatteredLuminanceLutCS", wi::graphics::ShaderStage::CS },
 	{"skyAtmosphere_skyLuminanceLutCS", wi::graphics::ShaderStage::CS },
-	{"upsample_bilateral_uint4CS", wi::graphics::ShaderStage::CS },
 	{"screenspaceshadowCS", wi::graphics::ShaderStage::CS },
 	{"rtshadowCS", wi::graphics::ShaderStage::CS, wi::graphics::ShaderModel::SM_6_5 },
 	{"rtshadow_denoise_tileclassificationCS", wi::graphics::ShaderStage::CS },
 	{"rtshadow_denoise_filterCS", wi::graphics::ShaderStage::CS },
 	{"rtshadow_denoise_temporalCS", wi::graphics::ShaderStage::CS },
+	{"rtshadow_upsampleCS", wi::graphics::ShaderStage::CS },
 	{"rtaoCS", wi::graphics::ShaderStage::CS, wi::graphics::ShaderModel::SM_6_5 },
 	{"rtao_denoise_tileclassificationCS", wi::graphics::ShaderStage::CS },
 	{"rtao_denoise_filterCS", wi::graphics::ShaderStage::CS },
@@ -209,6 +212,8 @@ wi::vector<ShaderEntry> shaders = {
 	{"surfel_raytraceCS_rtapi", wi::graphics::ShaderStage::CS, wi::graphics::ShaderModel::SM_6_5 },
 	{"surfel_raytraceCS", wi::graphics::ShaderStage::CS },
 	{"surfel_integrateCS", wi::graphics::ShaderStage::CS },
+	{"ddgi_rayallocationCS", wi::graphics::ShaderStage::CS },
+	{"ddgi_indirectprepareCS", wi::graphics::ShaderStage::CS },
 	{"ddgi_raytraceCS", wi::graphics::ShaderStage::CS },
 	{"ddgi_raytraceCS_rtapi", wi::graphics::ShaderStage::CS, wi::graphics::ShaderModel::SM_6_5 },
 	{"ddgi_updateCS", wi::graphics::ShaderStage::CS },
@@ -216,6 +221,7 @@ wi::vector<ShaderEntry> shaders = {
 	{"terrainVirtualTextureUpdateCS", wi::graphics::ShaderStage::CS },
 	{"terrainVirtualTextureUpdateCS_normalmap", wi::graphics::ShaderStage::CS },
 	{"terrainVirtualTextureUpdateCS_surfacemap", wi::graphics::ShaderStage::CS },
+	{"terrainVirtualTextureUpdateCS_emissivemap", wi::graphics::ShaderStage::CS },
 	{"meshlet_prepareCS", wi::graphics::ShaderStage::CS },
 	{"impostor_prepareCS", wi::graphics::ShaderStage::CS },
 	{"virtualTextureTileRequestsCS", wi::graphics::ShaderStage::CS },
@@ -483,6 +489,13 @@ int main(int argc, char* argv[])
 	{
 		shaders.back().permutations.emplace_back().defines = x;
 	}
+
+	// permutations for ssgiCS:
+	shaders.push_back({ "ssgiCS", wi::graphics::ShaderStage::CS });
+	shaders.back().permutations.emplace_back().defines = { "WIDE" };
+	// permutations for ssgi_upsampleCS:
+	shaders.push_back({ "ssgi_upsampleCS", wi::graphics::ShaderStage::CS });
+	shaders.back().permutations.emplace_back().defines = { "WIDE" };
 
 	wi::jobsystem::Initialize();
 	wi::jobsystem::context ctx;

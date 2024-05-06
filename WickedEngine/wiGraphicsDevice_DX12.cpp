@@ -2838,7 +2838,7 @@ using namespace dx12_internal;
 
 		if (resource_heap_tier >= D3D12_RESOURCE_HEAP_TIER_2)
 		{
-			capabilities |= GraphicsDeviceCapability::GENERIC_SPARSE_TILE_POOL;
+			capabilities |= GraphicsDeviceCapability::ALIASING_GENERIC;
 		}
 
 		if (features.CacheCoherentUMA())
@@ -3268,7 +3268,7 @@ using namespace dx12_internal;
 		internal_state->dummyTexture.desc.height = desc->height;
 		return true;
 	}
-	bool GraphicsDevice_DX12::CreateBuffer2(const GPUBufferDesc* desc, const std::function<void(void*)>& init_callback, GPUBuffer* buffer) const
+	bool GraphicsDevice_DX12::CreateBuffer2(const GPUBufferDesc* desc, const std::function<void(void*)>& init_callback, GPUBuffer* buffer, const GPUResource* alias, uint64_t alias_offset) const
 	{
 		auto internal_state = std::make_shared<Resource_DX12>();
 		internal_state->allocationhandler = allocationhandler;
@@ -3328,31 +3328,28 @@ using namespace dx12_internal;
 		wi::graphics::xbox::ApplyBufferCreationFlags(*desc, resourceDesc.Flags, allocationDesc.ExtraHeapFlags);
 #endif // PLATFORM_XBOX
 
-		if (has_flag(desc->misc_flags, ResourceMiscFlag::SPARSE_TILE_POOL_BUFFER) ||
-			has_flag(desc->misc_flags, ResourceMiscFlag::SPARSE_TILE_POOL_TEXTURE_NON_RT_DS) ||
-			has_flag(desc->misc_flags, ResourceMiscFlag::SPARSE_TILE_POOL_TEXTURE_RT_DS))
+		if (has_flag(desc->misc_flags, ResourceMiscFlag::ALIASING_BUFFER) ||
+			has_flag(desc->misc_flags, ResourceMiscFlag::ALIASING_TEXTURE_NON_RT_DS) ||
+			has_flag(desc->misc_flags, ResourceMiscFlag::ALIASING_TEXTURE_RT_DS))
 		{
-			// Sparse tile pool must not be a committed resource because that uses implicit heap which returns nullptr,
+			// Aliasing memory pool must not be a committed resource because that uses implicit heap which returns nullptr,
 			//	thus it cannot be offsetted. This is why we create custom allocation here which will never be committed resource
 			//	(since it has no resource)
-			D3D12_RESOURCE_ALLOCATION_INFO allocationInfo = {};
-			allocationInfo.Alignment = D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
-			allocationInfo.SizeInBytes = AlignTo(desc->size, (uint64_t)D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES);
+			D3D12_RESOURCE_ALLOCATION_INFO allocationInfo = device->GetResourceAllocationInfo(0, 1, &resourceDesc);
 
 			if (resource_heap_tier >= D3D12_RESOURCE_HEAP_TIER_2)
 			{
-				// tile pool memory can be used for sparse buffers and textures alike (requires resource heap tier 2):
 				allocationDesc.ExtraHeapFlags = D3D12_HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES;
 			}
-			else if (has_flag(desc->misc_flags, ResourceMiscFlag::SPARSE_TILE_POOL_BUFFER))
+			else if (has_flag(desc->misc_flags, ResourceMiscFlag::ALIASING_BUFFER))
 			{
 				allocationDesc.ExtraHeapFlags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
 			}
-			else if (has_flag(desc->misc_flags, ResourceMiscFlag::SPARSE_TILE_POOL_TEXTURE_NON_RT_DS))
+			else if (has_flag(desc->misc_flags, ResourceMiscFlag::ALIASING_TEXTURE_NON_RT_DS))
 			{
 				allocationDesc.ExtraHeapFlags = D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
 			}
-			else if (has_flag(desc->misc_flags, ResourceMiscFlag::SPARSE_TILE_POOL_TEXTURE_RT_DS))
+			else if (has_flag(desc->misc_flags, ResourceMiscFlag::ALIASING_TEXTURE_RT_DS))
 			{
 				allocationDesc.ExtraHeapFlags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
 			}
@@ -3387,14 +3384,30 @@ using namespace dx12_internal;
 		}
 		else
 		{
-			hr = allocationhandler->allocator->CreateResource(
-				&allocationDesc,
-				&resourceDesc,
-				resourceState,
-				nullptr,
-				&internal_state->allocation,
-				PPV_ARGS(internal_state->resource)
-			);
+			if (alias == nullptr)
+			{
+				hr = allocationhandler->allocator->CreateResource(
+					&allocationDesc,
+					&resourceDesc,
+					resourceState,
+					nullptr,
+					&internal_state->allocation,
+					PPV_ARGS(internal_state->resource)
+				);
+			}
+			else
+			{
+				// Aliasing: https://gpuopen-librariesandsdks.github.io/D3D12MemoryAllocator/html/resource_aliasing.html
+				auto alias_internal = to_internal(alias);
+				hr = allocationhandler->allocator->CreateAliasingResource(
+					alias_internal->allocation.Get(),
+					alias_offset,
+					&resourceDesc,
+					resourceState,
+					nullptr,
+					PPV_ARGS(internal_state->resource)
+				);
+			}
 			assert(SUCCEEDED(hr));
 		}
 
@@ -3480,7 +3493,7 @@ using namespace dx12_internal;
 
 		return SUCCEEDED(hr);
 	}
-	bool GraphicsDevice_DX12::CreateTexture(const TextureDesc* desc, const SubresourceData* initial_data, Texture* texture) const
+	bool GraphicsDevice_DX12::CreateTexture(const TextureDesc* desc, const SubresourceData* initial_data, Texture* texture, const GPUResource* alias, uint64_t alias_offset) const
 	{
 		auto internal_state = std::make_shared<Texture_DX12>();
 		internal_state->allocationhandler = allocationhandler;
@@ -3640,7 +3653,51 @@ using namespace dx12_internal;
 		wi::graphics::xbox::ApplyTextureCreationFlags(texture->desc, resourcedesc.Flags, allocationDesc.ExtraHeapFlags);
 #endif // PLATFORM_XBOX
 
-		if (has_flag(texture->desc.misc_flags, ResourceMiscFlag::SPARSE))
+
+		if (has_flag(desc->misc_flags, ResourceMiscFlag::ALIASING_BUFFER) ||
+			has_flag(desc->misc_flags, ResourceMiscFlag::ALIASING_TEXTURE_NON_RT_DS) ||
+			has_flag(desc->misc_flags, ResourceMiscFlag::ALIASING_TEXTURE_RT_DS))
+		{
+			// Aliasing memory pool must not be a committed resource because that uses implicit heap which returns nullptr,
+			//	thus it cannot be offsetted. This is why we create custom allocation here which will never be committed resource
+			//	(since it has no resource)
+			D3D12_RESOURCE_ALLOCATION_INFO allocationInfo = device->GetResourceAllocationInfo(0, 1, &resourcedesc);
+
+			if (resource_heap_tier >= D3D12_RESOURCE_HEAP_TIER_2)
+			{
+				allocationDesc.ExtraHeapFlags = D3D12_HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES;
+			}
+			else if (has_flag(desc->misc_flags, ResourceMiscFlag::ALIASING_BUFFER))
+			{
+				allocationDesc.ExtraHeapFlags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+			}
+			else if (has_flag(desc->misc_flags, ResourceMiscFlag::ALIASING_TEXTURE_NON_RT_DS))
+			{
+				allocationDesc.ExtraHeapFlags = D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
+			}
+			else if (has_flag(desc->misc_flags, ResourceMiscFlag::ALIASING_TEXTURE_RT_DS))
+			{
+				allocationDesc.ExtraHeapFlags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
+			}
+
+			hr = allocationhandler->allocator->AllocateMemory(
+				&allocationDesc,
+				&allocationInfo,
+				&internal_state->allocation
+			);
+			assert(SUCCEEDED(hr));
+
+			hr = device->CreatePlacedResource(
+				internal_state->allocation->GetHeap(),
+				internal_state->allocation->GetOffset(),
+				&resourcedesc,
+				resourceState,
+				useClearValue ? &optimizedClearValue : nullptr,
+				PPV_ARGS(internal_state->resource)
+			);
+			assert(SUCCEEDED(hr));
+		}
+		else if (has_flag(texture->desc.misc_flags, ResourceMiscFlag::SPARSE))
 		{
 			resourcedesc.Layout = D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE;
 			hr = device->CreateReservedResource(
@@ -3688,14 +3745,30 @@ using namespace dx12_internal;
 				allocationDesc.ExtraHeapFlags |= D3D12_HEAP_FLAG_SHARED;
 			}
 
-			hr = allocationhandler->allocator->CreateResource(
-				&allocationDesc,
-				&resourcedesc,
-				resourceState,
-				useClearValue ? &optimizedClearValue : nullptr,
-				&internal_state->allocation,
-				PPV_ARGS(internal_state->resource)
-			);
+			if (alias == nullptr)
+			{
+				hr = allocationhandler->allocator->CreateResource(
+					&allocationDesc,
+					&resourcedesc,
+					resourceState,
+					useClearValue ? &optimizedClearValue : nullptr,
+					&internal_state->allocation,
+					PPV_ARGS(internal_state->resource)
+				);
+			}
+			else
+			{
+				// Aliasing: https://gpuopen-librariesandsdks.github.io/D3D12MemoryAllocator/html/resource_aliasing.html
+				auto alias_internal = to_internal(alias);
+				hr = allocationhandler->allocator->CreateAliasingResource(
+					alias_internal->allocation.Get(),
+					alias_offset,
+					&resourcedesc,
+					resourceState,
+					useClearValue ? &optimizedClearValue : nullptr,
+					PPV_ARGS(internal_state->resource)
+				);
+			}
 		}
 		assert(SUCCEEDED(hr));
 
@@ -7043,6 +7116,14 @@ using namespace dx12_internal;
 				}
 			}
 			break;
+			case GPUBarrier::Type::ALIASING:
+			{
+				barrierdesc.Type = D3D12_RESOURCE_BARRIER_TYPE_ALIASING;
+				barrierdesc.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+				barrierdesc.Aliasing.pResourceBefore = to_internal(barrier.aliasing.resource_before)->resource.Get();
+				barrierdesc.Aliasing.pResourceAfter = to_internal(barrier.aliasing.resource_after)->resource.Get();
+			}
+			break;
 			}
 
 			if (barrierdesc.Type == D3D12_RESOURCE_BARRIER_TYPE_TRANSITION && commandlist.queue > QUEUE_GRAPHICS)
@@ -7298,24 +7379,68 @@ using namespace dx12_internal;
 	}
 	void GraphicsDevice_DX12::ClearUAV(const GPUResource* resource, uint32_t value, CommandList cmd)
 	{
-		auto internal_state = to_internal(resource);
-		// We cannot clear eg. a StructuredBuffer, so in those cases we must clear the RAW view with uav_raw
-		const SingleDescriptor& descriptor = internal_state->uav_raw.IsValid() ? internal_state->uav_raw : internal_state->uav;
-		D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle = descriptorheap_res.start_gpu;
-		gpu_handle.ptr += descriptor.index * resource_descriptor_size;
-		D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = descriptor.handle;
-
 		const UINT values[4] = { value,value,value,value };
 
-		CommandList_DX12& commandlist = GetCommandList(cmd);
-		commandlist.GetGraphicsCommandList()->ClearUnorderedAccessViewUint(
-			gpu_handle,
-			cpu_handle,
-			internal_state->resource.Get(),
-			values,
-			0,
-			nullptr
-		);
+		auto internal_state = to_internal(resource);
+		if (internal_state->uav_raw.IsValid())
+		{
+			// We cannot clear eg. a StructuredBuffer, so in those cases we must clear the RAW view with uav_raw
+			const SingleDescriptor& descriptor = internal_state->uav_raw;
+			D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle = descriptorheap_res.start_gpu;
+			gpu_handle.ptr += descriptor.index * resource_descriptor_size;
+			D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = descriptor.handle;
+
+			CommandList_DX12& commandlist = GetCommandList(cmd);
+			commandlist.GetGraphicsCommandList()->ClearUnorderedAccessViewUint(
+				gpu_handle,
+				cpu_handle,
+				internal_state->resource.Get(),
+				values,
+				0,
+				nullptr
+			);
+		}
+		else
+		{
+			if (internal_state->subresources_uav.empty())
+			{
+				const SingleDescriptor& descriptor = internal_state->uav;
+				D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle = descriptorheap_res.start_gpu;
+				gpu_handle.ptr += descriptor.index * resource_descriptor_size;
+				D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = descriptor.handle;
+
+				CommandList_DX12& commandlist = GetCommandList(cmd);
+				commandlist.GetGraphicsCommandList()->ClearUnorderedAccessViewUint(
+					gpu_handle,
+					cpu_handle,
+					internal_state->resource.Get(),
+					values,
+					0,
+					nullptr
+				);
+			}
+			else
+			{
+				// This is clearing every subresource (for example every mip since they can't be referenced by single UAV)
+				for (auto& uav : internal_state->subresources_uav)
+				{
+					const SingleDescriptor& descriptor = uav;
+					D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle = descriptorheap_res.start_gpu;
+					gpu_handle.ptr += descriptor.index * resource_descriptor_size;
+					D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = descriptor.handle;
+
+					CommandList_DX12& commandlist = GetCommandList(cmd);
+					commandlist.GetGraphicsCommandList()->ClearUnorderedAccessViewUint(
+						gpu_handle,
+						cpu_handle,
+						internal_state->resource.Get(),
+						values,
+						0,
+						nullptr
+					);
+				}
+			}
+		}
 	}
 	void GraphicsDevice_DX12::VideoDecode(const VideoDecoder* video_decoder, const VideoDecodeOperation* op, CommandList cmd)
 	{

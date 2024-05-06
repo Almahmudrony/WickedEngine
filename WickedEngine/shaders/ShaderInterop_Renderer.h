@@ -3,6 +3,8 @@
 #include "ShaderInterop.h"
 #include "ShaderInterop_Weather.h"
 #include "ShaderInterop_VXGI.h"
+#include "ShaderInterop_Terrain.h"
+#include "ShaderInterop_VoxelGrid.h"
 
 struct ShaderScene
 {
@@ -53,12 +55,16 @@ struct ShaderScene
 		float max_distance;
 
 		float3 grid_extents_rcp;
-		int offset_buffer;
+		int offset_texture;
 
 		float3 cell_size_rcp;
 		float smooth_backface;
 	};
 	DDGI ddgi;
+
+	ShaderTerrain terrain;
+
+	ShaderVoxelGrid voxelgrid;
 };
 
 static const uint SHADERMATERIAL_OPTION_BIT_USE_VERTEXCOLORS = 1 << 0;
@@ -340,7 +346,7 @@ struct ShaderMaterial
 	float		anisotropy_strength;
 	float		anisotropy_rotation_sin;
 	float		anisotropy_rotation_cos;
-	float		padding0;
+	float		blend_with_terrain_height_rcp;
 
 	int			sampler_descriptor;
 	uint		options;
@@ -420,7 +426,7 @@ struct ShaderTypeBin
 	uint4 padding; // 32-byte alignment
 #endif // __SCE__ || __PSSL__
 };
-static const uint SHADERTYPE_BIN_COUNT = 10;
+static const uint SHADERTYPE_BIN_COUNT = 11;
 
 struct VisibilityTile
 {
@@ -1047,14 +1053,14 @@ struct ShaderCamera
 	int texture_roughness_index;
 	int buffer_entitytiles_index;
 
-	int padding;
 	int texture_reflection_index;
 	int texture_reflection_depth_index;
 	int texture_refraction_index;
-
 	int texture_waterriples_index;
+
 	int texture_ao_index;
 	int texture_ssr_index;
+	int texture_ssgi_index;
 	int texture_rtshadow_index;
 
 	int texture_surfelgi_index;
@@ -1120,6 +1126,7 @@ struct ShaderCamera
 		texture_waterriples_index = -1;
 		texture_ao_index = -1;
 		texture_ssr_index = -1;
+		texture_ssgi_index = -1;
 		texture_rtshadow_index = -1;
 		texture_surfelgi_index = -1;
 		texture_depth_index_prev = -1;
@@ -1255,7 +1262,7 @@ struct CopyTextureCB
 
 static const uint PAINT_TEXTURE_BLOCKSIZE = 8;
 
-struct PaintTextureCB
+struct PaintTexturePushConstants
 {
 	uint2 xPaintBrushCenter;
 	uint xPaintBrushRadius;
@@ -1263,13 +1270,13 @@ struct PaintTextureCB
 
 	float xPaintBrushSmoothness;
 	uint xPaintBrushColor;
-	uint xPaintReveal;
+	uint xPaintRedirectAlpha;
 	float xPaintBrushRotation;
 
 	uint xPaintBrushShape;
-	uint padding0;
-	uint padding1;
-	uint padding2;
+	int texture_brush;
+	int texture_reveal;
+	int texture_output;
 };
 
 CBUFFER(PaintRadiusCB, CBSLOT_RENDERER_MISC)
@@ -1360,10 +1367,10 @@ struct TerrainVirtualTexturePush
 {
 	int2 offset;
 	uint2 write_offset;
+
 	uint write_size;
 	float resolution_rcp;
-	int region_weights_textureRO;
-	int padding;
+	uint blendmap_buffer_offset;
 };
 struct VirtualTextureResidencyUpdateCB
 {
@@ -1402,6 +1409,12 @@ CBUFFER(TrailRendererCB, CBSLOT_TRAILRENDERER)
 	float4		g_xTrailColor;
 	float4		g_xTrailTexMulAdd;
 	float4		g_xTrailTexMulAdd2;
+	int			g_xTrailTextureIndex1;
+	int			g_xTrailTextureIndex2;
+	int			g_xTrailLinearDepthTextureIndex;
+	float		g_xTrailDepthSoften;
+	float3		g_xTrailPadding;
+	float		g_xTrailCameraFar;
 };
 
 

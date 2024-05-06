@@ -11,6 +11,7 @@
 #include "wiLua.h"
 #include "wiUnorderedMap.h"
 #include "wiVoxelGrid_BindLua.h"
+#include "wiAudio_BindLua.h"
 
 #include <string>
 
@@ -318,8 +319,9 @@ FILTER_OPAQUE = 1 << 0
 FILTER_TRANSPARENT = 1 << 1
 FILTER_WATER = 1 << 2
 FILTER_NAVIGATION_MESH = 1 << 3
-FILTER_OBJECT_ALL = FILTER_OPAQUE | FILTER_TRANSPARENT | FILTER_WATER | FILTER_NAVIGATION_MESH
-FILTER_COLLIDER = 1 << 4
+FILTER_TERRAIN = 1 << 4
+FILTER_OBJECT_ALL = FILTER_OPAQUE | FILTER_TRANSPARENT | FILTER_WATER | FILTER_NAVIGATION_MESH | FILTER_TERRAIN
+FILTER_COLLIDER = 1 << 5
 FILTER_ALL = ~0
 
 PICK_VOID = FILTER_NONE
@@ -858,7 +860,8 @@ int Scene_BindLua::Intersects(lua_State* L)
 			Luna<Vector_BindLua>::push(L, result.velocity);
 			wi::lua::SSetInt(L, result.subsetIndex);
 			Luna<Matrix_BindLua>::push(L, result.orientation);
-			return 7;
+			Luna<Vector_BindLua>::push(L, result.uv);
+			return 8;
 		}
 
 		Sphere_BindLua* sphere = Luna<Sphere_BindLua>::lightcheck(L, 1);
@@ -4088,6 +4091,8 @@ Luna<MaterialComponent_BindLua>::FunctionType MaterialComponent_BindLua::methods
 	lunamethod(MaterialComponent_BindLua, GetStencilRef),
 	lunamethod(MaterialComponent_BindLua, SetTexMulAdd),
 	lunamethod(MaterialComponent_BindLua, GetTexMulAdd),
+	lunamethod(MaterialComponent_BindLua, SetCastShadow),
+	lunamethod(MaterialComponent_BindLua, IsCastingShadow),
 
 	lunamethod(MaterialComponent_BindLua, SetTexture),
 	lunamethod(MaterialComponent_BindLua, SetTextureUVSet),
@@ -4365,6 +4370,22 @@ int MaterialComponent_BindLua::GetTextureUVSet(lua_State* L)
 	}
 	return 0;
 }
+int MaterialComponent_BindLua::SetCastShadow(lua_State* L)
+{
+	int argc = wi::lua::SGetArgCount(L);
+	if (argc < 1)
+	{
+		wi::lua::SError(L, "SetCastShadow(bool value): not enough arguments!");
+		return 0;
+	}
+	component->SetCastShadow(wi::lua::SGetBool(L, 1));
+	return 0;
+}
+int MaterialComponent_BindLua::IsCastingShadow(lua_State* L)
+{
+	wi::lua::SSetBool(L, component->IsCastingShadow());
+	return 1;
+}
 
 
 
@@ -4378,6 +4399,7 @@ int MaterialComponent_BindLua::GetTextureUVSet(lua_State* L)
 Luna<MeshComponent_BindLua>::FunctionType MeshComponent_BindLua::methods[] = {
 	lunamethod(MeshComponent_BindLua, SetMeshSubsetMaterialID),
 	lunamethod(MeshComponent_BindLua, GetMeshSubsetMaterialID),
+	lunamethod(MeshComponent_BindLua, CreateSubset),
 	{ NULL, NULL }
 };
 Luna<MeshComponent_BindLua>::PropertyType MeshComponent_BindLua::properties[] = {
@@ -4437,6 +4459,15 @@ int MeshComponent_BindLua::GetMeshSubsetMaterialID(lua_State* L)
 	}
 	return 0;
 }
+int MeshComponent_BindLua::CreateSubset(lua_State* L)
+{
+	int index = (int)component->subsets.size();
+	auto& subset = component->subsets.emplace_back();
+	subset.indexOffset = 0;
+	subset.indexCount = (uint32_t)component->indices.size();
+	wi::lua::SSetInt(L, index);
+	return 1;
+}
 
 
 
@@ -4459,6 +4490,8 @@ Luna<EmitterComponent_BindLua>::FunctionType EmitterComponent_BindLua::methods[]
 	lunamethod(EmitterComponent_BindLua, SetScaleY),
 	lunamethod(EmitterComponent_BindLua, SetRotation),
 	lunamethod(EmitterComponent_BindLua, SetMotionBlurAmount),
+	lunamethod(EmitterComponent_BindLua, IsCollidersDisabled),
+	lunamethod(EmitterComponent_BindLua, SetCollidersDisabled),
 	{ NULL, NULL }
 };
 Luna<EmitterComponent_BindLua>::PropertyType EmitterComponent_BindLua::properties[] = {
@@ -4695,6 +4728,25 @@ int EmitterComponent_BindLua::SetMotionBlurAmount(lua_State* L)
 	else
 	{
 		wi::lua::SError(L, "SetMotionBlurAmount(float value) not enough arguments!");
+	}
+
+	return 0;
+}
+int EmitterComponent_BindLua::IsCollidersDisabled(lua_State* L)
+{
+	wi::lua::SSetBool(L, component->IsCollidersDisabled());
+	return 1;
+}
+int EmitterComponent_BindLua::SetCollidersDisabled(lua_State* L)
+{
+	int argc = wi::lua::SGetArgCount(L);
+	if (argc > 0)
+	{
+		component->SetCollidersDisabled(wi::lua::SGetBool(L, 1));
+	}
+	else
+	{
+		wi::lua::SError(L, "SetCollidersDisabled(bool value) not enough arguments!");
 	}
 
 	return 0;
@@ -6110,6 +6162,10 @@ Luna<SoundComponent_BindLua>::FunctionType SoundComponent_BindLua::methods[] = {
 	lunamethod(SoundComponent_BindLua, Stop),
 	lunamethod(SoundComponent_BindLua, SetLooped),
 	lunamethod(SoundComponent_BindLua, SetDisable3D),
+	lunamethod(SoundComponent_BindLua, SetSound),
+	lunamethod(SoundComponent_BindLua, SetSoundInstance),
+	lunamethod(SoundComponent_BindLua, GetSound),
+	lunamethod(SoundComponent_BindLua, GetSoundInstance),
 	{ NULL, NULL }
 };
 Luna<SoundComponent_BindLua>::PropertyType SoundComponent_BindLua::properties[] = {
@@ -6171,6 +6227,54 @@ int SoundComponent_BindLua::SetDisable3D(lua_State* L)
 	component->SetDisable3D(value);
 
 	return 0;
+}
+int SoundComponent_BindLua::SetSound(lua_State* L)
+{
+	int argc = wi::lua::SGetArgCount(L);
+	if (argc < 1)
+	{
+		wi::lua::SError(L, "SetSound(Sound sound): not enough arguments!");
+		return 0;
+	}
+
+	Sound_BindLua* sound = Luna<Sound_BindLua>::lightcheck(L, 1);
+	if (sound == nullptr)
+	{
+		wi::lua::SError(L, "SetSound(Sound sound): argument is not a Sound!");
+		return 0;
+	}
+
+	component->soundResource = sound->soundResource;
+	return 0;
+}
+int SoundComponent_BindLua::SetSoundInstance(lua_State* L)
+{
+	int argc = wi::lua::SGetArgCount(L);
+	if (argc < 1)
+	{
+		wi::lua::SError(L, "SetSoundInstance(SoundInstance inst): not enough arguments!");
+		return 0;
+	}
+
+	SoundInstance_BindLua* inst = Luna<SoundInstance_BindLua>::lightcheck(L, 1);
+	if (inst == nullptr)
+	{
+		wi::lua::SError(L, "SetSoundInstance(SoundInstance inst): argument is not a SoundInstance!");
+		return 0;
+	}
+
+	component->soundinstance = inst->soundinstance;
+	return 0;
+}
+int SoundComponent_BindLua::GetSound(lua_State* L)
+{
+	Luna<Sound_BindLua>::push(L, component->soundResource);
+	return 1;
+}
+int SoundComponent_BindLua::GetSoundInstance(lua_State* L)
+{
+	Luna<SoundInstance_BindLua>::push(L, component->soundinstance);
+	return 1;
 }
 
 

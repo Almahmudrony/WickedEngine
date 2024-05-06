@@ -77,7 +77,7 @@ struct PropsWindow : public wi::gui::Window
 
 	PropsWindow(EditorComponent* editor);
 
-	void SetTerrain(wi::terrain::Terrain*);
+	void Rebuild();
 	void AddWindow(wi::terrain::Prop& prop);
 
 	void Update(const wi::Canvas& canvas, float dt) override;
@@ -121,6 +121,9 @@ public:
 	wi::gui::Slider region1Slider;
 	wi::gui::Slider region2Slider;
 	wi::gui::Slider region3Slider;
+
+	wi::gui::ComboBox materialCombos[wi::terrain::MATERIAL_COUNT];
+	wi::gui::ComboBox materialCombo_GrassParticle;
 
 	std::unique_ptr<PropsWindow> propsWindow;
 

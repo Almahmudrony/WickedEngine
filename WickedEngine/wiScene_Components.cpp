@@ -310,6 +310,14 @@ namespace wi::scene
 			material.anisotropy_rotation_sin = 0;
 			material.anisotropy_rotation_cos = 0;
 		}
+		if (blend_with_terrain_height > 0)
+		{
+			material.blend_with_terrain_height_rcp = 1.0f / blend_with_terrain_height;
+		}
+		else
+		{
+			material.blend_with_terrain_height_rcp = 0;
+		}
 		material.stencilRef = wi::renderer::CombineStencilrefs(engineStencilRef, userStencilRef);
 		material.shaderType = (uint)shaderType;
 		material.userdata = userdata;
@@ -2054,8 +2062,6 @@ namespace wi::scene
 		XMStoreFloat4x4(&InvView, _InvV);
 		XMStoreFloat3x3(&rotationMatrix, _InvV);
 		XMStoreFloat4x4(&InvVP, XMMatrixInverse(nullptr, _VP));
-		XMStoreFloat4x4(&Projection, _P);
-		XMStoreFloat4x4(&InvProjection, XMMatrixInverse(nullptr, _P));
 
 		frustum.Create(_VP);
 	}

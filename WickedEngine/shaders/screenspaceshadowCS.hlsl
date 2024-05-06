@@ -7,6 +7,10 @@
 PUSHCONSTANT(postprocess, PostProcess);
 
 static const uint MAX_RTSHADOWS = 16;
+static const uint DOWNSAMPLE = 2;
+
+static const float thickness = 0.5;
+
 RWTexture2D<uint4> output : register(u0);
 
 #ifdef RTSHADOW
@@ -36,7 +40,7 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid : SV_GroupID, uint3 GTid :
 #endif // RTSHADOW
 
 	float3 P = reconstruct_position(uv, depth);
-	float3 N = decode_oct(texture_normal[DTid.xy]);
+	float3 N = decode_oct(texture_normal[DTid.xy * DOWNSAMPLE]);
 
 	Surface surface;
 	surface.init();
@@ -45,10 +49,10 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid : SV_GroupID, uint3 GTid :
 
 	const float4 bluenoise = blue_noise(DTid.xy);
 
-	const uint2 tileIndex = uint2(floor(DTid.xy / TILED_CULLING_BLOCKSIZE));
+	const uint2 tileIndex = uint2(floor(DTid.xy * DOWNSAMPLE / TILED_CULLING_BLOCKSIZE));
 	const uint flatTileIndex = flatten2D(tileIndex, GetCamera().entity_culling_tilecount.xy) * SHADER_ENTITY_TILE_BUCKET_COUNT;
 
-	uint shadow_mask[4] = {0,0,0,0}; // FXC issue: can't dynamically index into uint4, unless unrolling all loops
+	uint4 shadow_mask = 0;
 	uint shadow_index = 0;
 
 	RayDesc ray;
@@ -60,7 +64,6 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid : SV_GroupID, uint3 GTid :
 
 	const float range = postprocess.params0.x;
 	const uint samplecount = postprocess.params0.y;
-	const float thickness = 0.1;
 	const float stepsize = range / samplecount;
 	const float offset = abs(dither(DTid.xy + GetTemporalAASampleRotation()));
 #endif // RTSHADOW
@@ -251,21 +254,19 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid : SV_GroupID, uint3 GTid :
 						[loop]
 						for (uint i = 0; i < samplecount; ++i)
 						{
-							rayPos += ray.Direction * stepsize;
-
 							float4 proj = mul(GetCamera().projection, float4(rayPos, 1));
 							proj.xyz /= proj.w;
 							proj.xy = proj.xy * float2(0.5f, -0.5f) + float2(0.5f, 0.5f);
-
+							
 							[branch]
 							if (is_saturated(proj.xy))
 							{
 								const float ray_depth_real = proj.w;
 								const float ray_depth_sample = texture_lineardepth.SampleLevel(sampler_point_clamp, proj.xy, 1) * GetCamera().z_far;
 								const float ray_depth_delta = ray_depth_real - ray_depth_sample;
-								if (ray_depth_delta > 0 && ray_depth_delta < thickness)
+								if (ray_depth_delta > 0.02 && ray_depth_delta < thickness)
 								{
-									occlusion = 1;
+									occlusion = 1 - pow(float(i) / float(samplecount), 8);
 
 									// screen edge fade:
 									float2 fade = max(12 * abs(proj.xy - 0.5) - 5, 0);
@@ -274,6 +275,8 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid : SV_GroupID, uint3 GTid :
 									break;
 								}
 							}
+							
+							rayPos += ray.Direction * stepsize;
 						}
 						float shadow = 1 - occlusion;
 #endif // RTSHADOW
@@ -307,7 +310,9 @@ void main(uint3 DTid : SV_DispatchThreadID, uint3 Gid : SV_GroupID, uint3 GTid :
 		uint bit = ((shadow_mask[0] >> (i * 8)) & 0xFF) ? (1u << lane_index) : 0;
 		InterlockedOr(output_tiles[flatTileIdx][i], bit);
 	}
+	output[DTid.xy] = uint4(shadow_mask[0], shadow_mask[1], shadow_mask[2], shadow_mask[3]);
+#else
+	output[DTid.xy] = shadow_mask;
 #endif // RTSHADOW
 
-	output[DTid.xy] = uint4(shadow_mask[0], shadow_mask[1], shadow_mask[2], shadow_mask[3]);
 }

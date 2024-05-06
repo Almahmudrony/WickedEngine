@@ -137,7 +137,6 @@ namespace wi::renderer
 
 		std::atomic<uint32_t> object_counter;
 		std::atomic<uint32_t> light_counter;
-		std::atomic<uint32_t> decal_counter;
 
 		wi::SpinLock locker;
 		bool planar_reflection_visible = false;
@@ -156,7 +155,6 @@ namespace wi::renderer
 
 			object_counter.store(0);
 			light_counter.store(0);
-			decal_counter.store(0);
 
 			closestRefPlane = std::numeric_limits<float>::max();
 			planar_reflection_visible = false;
@@ -369,7 +367,10 @@ namespace wi::renderer
 		const wi::graphics::Texture* depthbuffer = nullptr; // depth buffer that matches with post projection
 		const wi::graphics::Texture* lineardepth = nullptr; // depth buffer in linear space in [0,1] range
 		const wi::graphics::Texture* primitiveID_resolved = nullptr; // resolved from MSAA texture_visibility input
+
+		inline bool IsValid() const { return bins.IsValid(); }
 	};
+	void CreateVisibilityResourcesLightWeight(VisibilityResources& res, XMUINT2 resolution);
 	void CreateVisibilityResources(VisibilityResources& res, XMUINT2 resolution);
 	void Visibility_Prepare(
 		const VisibilityResources& res,
@@ -391,7 +392,6 @@ namespace wi::renderer
 		wi::graphics::CommandList cmd
 	);
 	void Visibility_Velocity(
-		const VisibilityResources& res,
 		const wi::graphics::Texture& output,
 		wi::graphics::CommandList cmd
 	);
@@ -399,12 +399,14 @@ namespace wi::renderer
 	// Surfel GI: diffuse GI with ray tracing from surfels
 	struct SurfelGIResources
 	{
+		wi::graphics::Texture result_halfres;
 		wi::graphics::Texture result;
 	};
 	void CreateSurfelGIResources(SurfelGIResources& res, XMUINT2 resolution);
 	void SurfelGI_Coverage(
 		const SurfelGIResources& res,
 		const wi::scene::Scene& scene,
+		const wi::graphics::Texture& lineardepth,
 		const wi::graphics::Texture& debugUAV,
 		wi::graphics::CommandList cmd
 	);
@@ -519,6 +521,7 @@ namespace wi::renderer
 	struct RTAOResources
 	{
 		wi::graphics::Texture normals;
+		wi::graphics::Texture denoised;
 
 		mutable int frame = 0;
 		wi::graphics::GPUBuffer tiles;
@@ -530,6 +533,7 @@ namespace wi::renderer
 	void Postprocess_RTAO(
 		const RTAOResources& res,
 		const wi::scene::Scene& scene,
+		const wi::graphics::Texture& lineardepth,
 		const wi::graphics::Texture& output,
 		wi::graphics::CommandList cmd,
 		float range = 1.0f,
@@ -543,7 +547,6 @@ namespace wi::renderer
 		wi::graphics::Texture texture_spatial_variance;
 		wi::graphics::Texture texture_temporal[2];
 		wi::graphics::Texture texture_temporal_variance[2];
-		wi::graphics::Texture texture_bilateral_temp;
 	};
 	void CreateRTDiffuseResources(RTDiffuseResources& res, XMUINT2 resolution);
 	void Postprocess_RTDiffuse(
@@ -552,6 +555,25 @@ namespace wi::renderer
 		const wi::graphics::Texture& output,
 		wi::graphics::CommandList cmd,
 		float range = 1000.0f
+	);
+	struct SSGIResources
+	{
+		mutable bool cleared = false;
+		wi::graphics::Texture texture_atlas_depth;
+		wi::graphics::Texture texture_atlas_color;
+		wi::graphics::Texture texture_depth_mips;
+		wi::graphics::Texture texture_normal_mips;
+		wi::graphics::Texture texture_diffuse_mips;
+	};
+	void CreateSSGIResources(SSGIResources& res, XMUINT2 resolution);
+	void Postprocess_SSGI(
+		const SSGIResources& res,
+		const wi::graphics::Texture& input,
+		const wi::graphics::Texture& input_depth,
+		const wi::graphics::Texture& input_normal,
+		const wi::graphics::Texture& output,
+		wi::graphics::CommandList cmd,
+		float depthRejection = 8
 	);
 	struct RTReflectionResources
 	{
@@ -564,7 +586,6 @@ namespace wi::renderer
 		wi::graphics::Texture texture_resolve_reprojectionDepth;
 		wi::graphics::Texture texture_temporal[2];
 		wi::graphics::Texture texture_temporal_variance[2];
-		wi::graphics::Texture texture_bilateral_temp;
 	};
 	void CreateRTReflectionResources(RTReflectionResources& res, XMUINT2 resolution);
 	void Postprocess_RTReflection(
@@ -589,7 +610,6 @@ namespace wi::renderer
 		wi::graphics::Texture texture_resolve_reprojectionDepth;
 		wi::graphics::Texture texture_temporal[2];
 		wi::graphics::Texture texture_temporal_variance[2];
-		wi::graphics::Texture texture_bilateral_temp;
 		wi::graphics::GPUBuffer buffer_tile_tracing_statistics;
 		wi::graphics::GPUBuffer buffer_tiles_tracing_earlyexit;
 		wi::graphics::GPUBuffer buffer_tiles_tracing_cheap;
@@ -605,6 +625,7 @@ namespace wi::renderer
 	);
 	struct RTShadowResources
 	{
+		wi::graphics::Texture raytraced;
 		wi::graphics::Texture temporal[2];
 		wi::graphics::Texture normals;
 
@@ -626,7 +647,7 @@ namespace wi::renderer
 	);
 	struct ScreenSpaceShadowResources
 	{
-		int placeholder = 0;
+		wi::graphics::Texture lowres;
 	};
 	void CreateScreenSpaceShadowResources(ScreenSpaceShadowResources& res, XMUINT2 resolution);
 	void Postprocess_ScreenSpaceShadow(
@@ -986,7 +1007,7 @@ namespace wi::renderer
 
 
 
-	void SetTransparentShadowsEnabled(float value);
+	void SetTransparentShadowsEnabled(bool value);
 	float GetTransparentShadowsEnabled();
 	void SetWireRender(bool value);
 	bool IsWireRender();
@@ -1143,6 +1164,16 @@ namespace wi::renderer
 		uint shape = 0; // 0: circle, 1 : square
 	};
 	void DrawPaintRadius(const PaintRadius& paintrad);
+
+	struct PaintTextureParams
+	{
+		wi::graphics::Texture editTex; // UAV writable texture
+		wi::graphics::Texture brushTex; // splat texture (optional)
+		wi::graphics::Texture revealTex; // mask texture that can be revealed (optional)
+		PaintTexturePushConstants push = {}; // shader parameters
+	};
+	void PaintIntoTexture(const PaintTextureParams& params);
+	wi::Resource CreatePaintableTexture(uint32_t width, uint32_t height, uint32_t mips = 0, wi::Color initialColor = wi::Color::Transparent());
 
 	// Add voxel grid to be drawn in debug rendering phase.
 	//	WARNING: This retains pointer until next call to DrawDebugScene(), so voxel grid must not be destroyed until then!

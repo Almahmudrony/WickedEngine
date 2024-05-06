@@ -2,8 +2,6 @@
 #define WI_SURFACE_HF
 #include "globals.hlsli"
 
-#define max3(v) max(max(v.x, v.y), v.z)
-
 // hard coded value for surfaces with simplified lighting:
 //	occlusion = 1
 //	roughness = 1
@@ -100,6 +98,7 @@ struct Surface
 	float hit_depth;
 	float3 gi;
 	float3 bumpColor;
+	float3 ssgi;
 
 	// These will be computed when calling Update():
 	float NdotV;			// cos(angle between normal and view vector)
@@ -147,6 +146,7 @@ struct Surface
 		flags = 0;
 		gi = 0;
 		bumpColor = 0;
+		ssgi = 0;
 
 		uid_validate = 0;
 		hit_depth = 0;
@@ -206,7 +206,7 @@ struct Surface
 		if (GetFrame().options & OPTION_BIT_FORCE_DIFFUSE_LIGHTING)
 #endif // ENVMAPRENDERING
 		{
-			f0 = material.metalness = material.reflectance = 0;
+			f0 = material.metalness = material.reflectance = surfaceMap.b = surfaceMap.a = 0;
 		}
 
 		[branch]
@@ -222,7 +222,7 @@ struct Surface
 			// Metallic-roughness workflow:
 			if (material.IsOcclusionEnabled_Primary())
 			{
-				occlusion = surfaceMap.r;
+				occlusion *= surfaceMap.r;
 			}
 			roughness = surfaceMap.g;
 			const float metalness = surfaceMap.b;
@@ -465,7 +465,7 @@ struct Surface
 					uvsets,
 					V,
 					TBN,
-					material,
+					material.parallaxOcclusionMapping,
 					tex,
 					uv,
 					uv_dx,
@@ -623,6 +623,92 @@ struct Surface
 			surfaceMap = surfacemap_simple;
 		}
 
+		emissiveColor = material.GetEmissive() * Unpack_R11G11B10_FLOAT(inst.emissive);
+		if (is_emittedparticle)
+		{
+			emissiveColor *= baseColor.rgb * baseColor.a;
+		}
+		else
+		{
+			[branch]
+			if (material.textures[EMISSIVEMAP].IsValid())
+			{
+#ifdef SURFACE_LOAD_QUAD_DERIVATIVES
+				float4 emissiveMap = material.textures[EMISSIVEMAP].SampleGrad(sam, uvsets, uvsets_dx, uvsets_dy);
+#else
+				float lod = 0;
+#ifdef SURFACE_LOAD_MIPCONE
+				lod = compute_texture_lod(material.textures[EMISSIVEMAP].GetTexture(), material.textures[EMISSIVEMAP].GetUVSet() == 0 ? lod_constant0 : lod_constant1, ray_direction, surf_normal, cone_width);
+#endif // SURFACE_LOAD_MIPCONE
+				float4 emissiveMap = material.textures[EMISSIVEMAP].SampleLevel(sam, uvsets, lod);
+#endif // SURFACE_LOAD_QUAD_DERIVATIVES
+				emissiveColor *= emissiveMap.rgb * emissiveMap.a;
+			}
+		}
+
+		if (material.options & SHADERMATERIAL_OPTION_BIT_ADDITIVE)
+		{
+			emissiveColor += baseColor.rgb * baseColor.a;
+		}
+
+#ifdef SURFACE_LOAD_QUAD_DERIVATIVES
+#ifdef TERRAINBLENDED
+		[branch]
+		if (material.blend_with_terrain_height_rcp > 0)
+		{
+			// Blend object into terrain material:
+			ShaderTerrain terrain = GetScene().terrain;
+			[branch]
+			if(terrain.chunk_buffer >= 0)
+			{
+				int2 chunk_coord = floor((P.xz - terrain.center_chunk_pos.xz) / terrain.chunk_size);
+				if(chunk_coord.x >= -terrain.chunk_buffer_range && chunk_coord.x <= terrain.chunk_buffer_range && chunk_coord.y >= -terrain.chunk_buffer_range && chunk_coord.y <= terrain.chunk_buffer_range)
+				{
+					uint chunk_idx = flatten2D(chunk_coord + terrain.chunk_buffer_range, terrain.chunk_buffer_range * 2 + 1);
+					ShaderTerrainChunk chunk = bindless_structured_terrain_chunks[terrain.chunk_buffer][chunk_idx];
+				
+					[branch]
+					if(chunk.heightmap >= 0)
+					{
+						Texture2D terrain_heightmap = bindless_textures[NonUniformResourceIndex(chunk.heightmap)];
+						float2 chunk_min = terrain.center_chunk_pos.xz + chunk_coord * terrain.chunk_size;
+						float2 chunk_max = terrain.center_chunk_pos.xz + terrain.chunk_size + chunk_coord * terrain.chunk_size;
+						float2 terrain_uv = saturate(inverse_lerp(chunk_min, chunk_max, P.xz));
+						float terrain_height0 = terrain_heightmap.SampleLevel(sampler_linear_clamp, terrain_uv, 0).r;
+						float terrain_height1 = terrain_heightmap.SampleLevel(sampler_linear_clamp, terrain_uv, 0, int2(1, 0)).r;
+						float terrain_height2 = terrain_heightmap.SampleLevel(sampler_linear_clamp, terrain_uv, 0, int2(0, 1)).r;
+						float3 P0 = float3(0, terrain_height0, 0); 
+						float3 P1 = float3(1, terrain_height1, 0); 
+						float3 P2 = float3(0, terrain_height2, 1);
+						float3 terrain_normal = normalize(cross(P2 - P0, P1 - P0));
+						float terrain_height = lerp(terrain.min_height, terrain.max_height, terrain_height0);
+						float object_height = P.y;
+						float diff = (object_height - terrain_height) * material.blend_with_terrain_height_rcp;
+						float blend = 1 - pow(saturate(diff), 2);
+						//blend *= lerp(1, saturate((noise_gradient_3D(P * 2) * 0.5 + 0.5) * 2), saturate(diff));
+						//terrain_uv = lerp(saturate(inverse_lerp(chunk_min, chunk_max, P.xz - N.xz * diff)), terrain_uv, saturate(N.y)); // uv stretching improvement: stretch in normal direction if normal gets horizontal
+						ShaderMaterial terrain_material = load_material(chunk.materialID);
+						terrain_uv = mad(terrain_uv, terrain_material.texMulAdd.xy, terrain_material.texMulAdd.zw);
+						float2 terrain_uv_dx = terrain_uv - saturate(inverse_lerp(chunk_min, chunk_max, (P - P_dx).xz));
+						float2 terrain_uv_dy = terrain_uv - saturate(inverse_lerp(chunk_min, chunk_max, (P - P_dy).xz));
+						float4 terrain_baseColor = terrain_material.textures[BASECOLORMAP].SampleGrad(sam, terrain_uv.xyxy, terrain_uv_dx.xyxy, terrain_uv_dy.xyxy);
+						float4 terrain_bumpColor = terrain_material.textures[NORMALMAP].SampleGrad(sam, terrain_uv.xyxy, terrain_uv_dx.xyxy, terrain_uv_dy.xyxy);
+						float4 terrain_surfaceMap = terrain_material.textures[SURFACEMAP].SampleGrad(sam, terrain_uv.xyxy, terrain_uv_dx.xyxy, terrain_uv_dy.xyxy);
+						float3 terrain_emissiveMap = terrain_material.textures[EMISSIVEMAP].SampleGrad(sam, terrain_uv.xyxy, terrain_uv_dx.xyxy, terrain_uv_dy.xyxy).rgb;
+						baseColor = lerp(baseColor, terrain_baseColor, blend);
+						bumpColor = lerp(bumpColor, terrain_bumpColor.rgb * 2 - 1, blend);
+						surfaceMap = lerp(surfaceMap, terrain_surfaceMap, blend);
+						emissiveColor += terrain_emissiveMap * terrain_material.GetEmissive() * blend;
+						Nunnormalized = lerp(Nunnormalized, terrain_normal, blend);
+						TBN[2] = Nunnormalized;
+						N = normalize(Nunnormalized);
+					}
+				}
+			}
+		}
+#endif // TERRAINBLENDED
+#endif // SURFACE_LOAD_QUAD_DERIVATIVES
+
 #ifdef SURFACE_LOAD_QUAD_DERIVATIVES
 		// I need to copy the decal code here because include resolve issues:
 #ifndef DISABLE_DECALS
@@ -666,10 +752,10 @@ struct Surface
 							continue;
 
 						float4x4 decalProjection = load_entitymatrix(decal.GetMatrixIndex());
-						int decalTexture = asint(decalProjection[3][0]);
-						int decalNormal = asint(decalProjection[3][1]);
-						float decalNormalStrength = decalProjection[3][2];
-						int decalSurfacemap = asint(decalProjection[3][3]);
+						const int decalTexture = asint(decalProjection[3][0]);
+						const int decalNormal = asint(decalProjection[3][1]);
+						const int decalSurfacemap = asint(decalProjection[3][2]);
+						const int decalDisplacementmap = asint(decalProjection[3][3]);
 						decalProjection[3] = float4(0, 0, 0, 1);
 						
 						// under here will be VGPR!
@@ -691,6 +777,27 @@ struct Surface
 								const float slopeBlend = decal.GetConeAngleCos() > 0 ? pow(saturate(dot(N, decal.GetDirection())), decal.GetConeAngleCos()) : 1;
 								decalColor.a *= edgeBlend * slopeBlend;
 								[branch]
+								if (decalDisplacementmap >= 0)
+								{
+									const float3 t = get_right(decalProjection);
+									const float3 b = -get_up(decalProjection);
+									const float3 n = N;
+									const float3x3 tbn = float3x3(t, b, n);
+									float4 inoutuv = uvw.xyxy;
+									ParallaxOcclusionMapping_Impl(
+										inoutuv,
+										V,
+										tbn,
+										decal.GetLength(),
+										bindless_textures[decalDisplacementmap],
+										uvw.xy,
+										decalDX,
+										decalDY,
+										sampler_linear_clamp
+									);
+									uvw.xy = saturate(inoutuv.xy);
+								}
+								[branch]
 								if (decalTexture >= 0)
 								{
 									decalColor *= bindless_textures[decalTexture].SampleGrad(sam, uvw.xy, decalDX, decalDY);
@@ -707,7 +814,7 @@ struct Surface
 								{
 									float3 decalBumpColor = float3(bindless_textures[decalNormal].SampleGrad(sam, uvw.xy, decalDX, decalDY).rg, 1);
 									decalBumpColor = decalBumpColor * 2 - 1;
-									decalBumpColor.rg *= decalNormalStrength;
+									decalBumpColor.rg *= decal.GetAngleScale();
 									decalBumpAccumulation.rgb = mad(1 - decalBumpAccumulation.a, decalColor.a * decalBumpColor.rgb, decalBumpAccumulation.rgb);
 									decalBumpAccumulation.a = mad(1 - decalColor.a, decalBumpAccumulation.a, decalColor.a);
 								}
@@ -759,34 +866,6 @@ struct Surface
 		}
 
 		create(material, baseColor, surfaceMap, specularMap);
-
-		emissiveColor = material.GetEmissive() * Unpack_R11G11B10_FLOAT(inst.emissive);
-		if (is_emittedparticle)
-		{
-			emissiveColor *= baseColor.rgb * baseColor.a;
-		}
-		else
-		{
-			[branch]
-			if (material.textures[EMISSIVEMAP].IsValid())
-			{
-#ifdef SURFACE_LOAD_QUAD_DERIVATIVES
-				float4 emissiveMap = material.textures[EMISSIVEMAP].SampleGrad(sam, uvsets, uvsets_dx, uvsets_dy);
-#else
-				float lod = 0;
-#ifdef SURFACE_LOAD_MIPCONE
-				lod = compute_texture_lod(material.textures[EMISSIVEMAP].GetTexture(), material.textures[EMISSIVEMAP].GetUVSet() == 0 ? lod_constant0 : lod_constant1, ray_direction, surf_normal, cone_width);
-#endif // SURFACE_LOAD_MIPCONE
-				float4 emissiveMap = material.textures[EMISSIVEMAP].SampleLevel(sam, uvsets, lod);
-#endif // SURFACE_LOAD_QUAD_DERIVATIVES
-				emissiveColor *= emissiveMap.rgb * emissiveMap.a;
-			}
-		}
-
-		if (material.options & SHADERMATERIAL_OPTION_BIT_ADDITIVE)
-		{
-			emissiveColor += baseColor.rgb * baseColor.a;
-		}
 
 		transmission = material.transmission;
 		[branch]

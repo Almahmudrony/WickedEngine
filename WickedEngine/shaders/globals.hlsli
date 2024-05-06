@@ -65,7 +65,8 @@
 		"SRV(t0, space = 37, offset = 0, numDescriptors = unbounded, flags = DESCRIPTORS_VOLATILE | DATA_VOLATILE)," \
 		"SRV(t0, space = 38, offset = 0, numDescriptors = unbounded, flags = DESCRIPTORS_VOLATILE | DATA_VOLATILE)," \
 		"SRV(t0, space = 39, offset = 0, numDescriptors = unbounded, flags = DESCRIPTORS_VOLATILE | DATA_VOLATILE)," \
-		"SRV(t0, space = 40, offset = 0, numDescriptors = unbounded, flags = DESCRIPTORS_VOLATILE | DATA_VOLATILE)" \
+		"SRV(t0, space = 40, offset = 0, numDescriptors = unbounded, flags = DESCRIPTORS_VOLATILE | DATA_VOLATILE)," \
+		"SRV(t0, space = 41, offset = 0, numDescriptors = unbounded, flags = DESCRIPTORS_VOLATILE | DATA_VOLATILE)" \
 	"), " \
 	"StaticSampler(s100, addressU = TEXTURE_ADDRESS_CLAMP, addressV = TEXTURE_ADDRESS_CLAMP, addressW = TEXTURE_ADDRESS_CLAMP, filter = FILTER_MIN_MAG_MIP_LINEAR)," \
 	"StaticSampler(s101, addressU = TEXTURE_ADDRESS_WRAP, addressV = TEXTURE_ADDRESS_WRAP, addressW = TEXTURE_ADDRESS_WRAP, filter = FILTER_MIN_MAG_MIP_LINEAR)," \
@@ -228,6 +229,7 @@ static const BindlessResource<StructuredBuffer<ShaderMaterial>> bindless_structu
 static const BindlessResource<StructuredBuffer<ShaderEntity>> bindless_structured_entity;
 static const BindlessResource<StructuredBuffer<float4x4>> bindless_structured_matrix;
 static const BindlessResource<StructuredBuffer<uint>> bindless_structured_uint;
+static const BindlessResource<StructuredBuffer<ShaderTerrainChunk>> bindless_structured_terrain_chunks;
 #elif defined(__spirv__)
 [[vk::binding(0, DESCRIPTOR_SET_BINDLESS_STORAGE_BUFFER)]] StructuredBuffer<ShaderMeshInstance> bindless_structured_meshinstance[];
 [[vk::binding(0, DESCRIPTOR_SET_BINDLESS_STORAGE_BUFFER)]] StructuredBuffer<ShaderGeometry> bindless_structured_geometry[];
@@ -236,6 +238,7 @@ static const BindlessResource<StructuredBuffer<uint>> bindless_structured_uint;
 [[vk::binding(0, DESCRIPTOR_SET_BINDLESS_STORAGE_BUFFER)]] StructuredBuffer<ShaderEntity> bindless_structured_entity[];
 [[vk::binding(0, DESCRIPTOR_SET_BINDLESS_STORAGE_BUFFER)]] StructuredBuffer<float4x4> bindless_structured_matrix[];
 [[vk::binding(0, DESCRIPTOR_SET_BINDLESS_STORAGE_BUFFER)]] StructuredBuffer<uint> bindless_structured_uint[];
+[[vk::binding(0, DESCRIPTOR_SET_BINDLESS_STORAGE_BUFFER)]] StructuredBuffer<ShaderTerrainChunk> bindless_structured_terrain_chunks[];
 #else
 StructuredBuffer<ShaderMeshInstance> bindless_structured_meshinstance[] : register(space34);
 StructuredBuffer<ShaderGeometry> bindless_structured_geometry[] : register(space35);
@@ -244,6 +247,7 @@ StructuredBuffer<ShaderMaterial> bindless_structured_material[] : register(space
 StructuredBuffer<ShaderEntity> bindless_structured_entity[] : register(space38);
 StructuredBuffer<float4x4> bindless_structured_matrix[] : register(space39);
 StructuredBuffer<uint> bindless_structured_uint[] : register(space40);
+StructuredBuffer<ShaderTerrainChunk> bindless_structured_terrain_chunks[] : register(space41);
 #endif // __spirv__
 
 inline FrameCB GetFrame()
@@ -374,6 +378,78 @@ static const float SKY_UNIT_TO_M = rcp(M_TO_SKY_UNIT);
 
 #define sqr(a) ((a)*(a))
 #define pow5(x) pow(x, 5)
+#define arraysize(a) (sizeof(a) / sizeof(a[0]))
+
+template<typename T>
+float max3(T v)
+{
+	return max(max(v.x, v.y), v.z);
+}
+template<typename T>
+float min3(T v)
+{
+	return min(min(v.x, v.y), v.z);
+}
+
+#ifndef __PSSL__
+float min3(float a, float b, float c)
+{
+	return min(min(a, b), c);
+}
+float max3(float a, float b, float c)
+{
+	return max(max(a, b), c);
+}
+float2 min3(float2 a, float2 b, float2 c)
+{
+	return float2(min3(a.x, b.x, c.x), min3(a.y, b.y, c.y));
+}
+float3 min3(float3 a, float3 b, float3 c)
+{
+	return float3(min3(a.x, b.x, c.x), min3(a.y, b.y, c.y), min3(a.z, b.z, c.z));
+}
+float4 min3(float4 a, float4 b, float4 c)
+{
+	return float4(min3(a.x, b.x, c.x), min3(a.y, b.y, c.y), min3(a.z, b.z, c.z), min3(a.w, b.w, c.w));
+}
+float2 max3(float2 a, float2 b, float2 c)
+{
+	return float2(max3(a.x, b.x, c.x), max3(a.y, b.y, c.y));
+}
+float3 max3(float3 a, float3 b, float3 c)
+{
+	return float3(max3(a.x, b.x, c.x), max3(a.y, b.y, c.y), max3(a.z, b.z, c.z));
+}
+float4 max3(float4 a, float4 b, float4 c)
+{
+	return float4(max3(a.x, b.x, c.x), max3(a.y, b.y, c.y), max3(a.z, b.z, c.z), max3(a.w, b.w, c.w));
+}
+float min4(float4 values)
+{
+	return min(min3(values.x, values.y, values.z), values.w);
+}
+float max4(float4 values)
+{
+	return max(max3(values.x, values.y, values.z), values.w);
+}
+
+float med3(float a, float b, float c)
+{
+	return max(min(a, b), min(max(a, b), c));
+}
+float2 med3(float2 a, float2 b, float2 c)
+{
+	return float2(med3(a.x, b.x, c.x), med3(a.y, b.y, c.y));
+}
+float3 med3(float3 a, float3 b, float3 c)
+{
+	return float3(med3(a.x, b.x, c.x), med3(a.y, b.y, c.y), med3(a.z, b.z, c.z));
+}
+float4 med3(float4 a, float4 b, float4 c)
+{
+	return float4(med3(a.x, b.x, c.x), med3(a.y, b.y, c.y), med3(a.z, b.z, c.z), med3(a.w, b.w, c.w));
+}
+#endif // __PSSL__
 
 // attribute computation with barycentric interpolation
 //	a0 : attribute at triangle corner 0
@@ -396,6 +472,14 @@ inline float3 attribute_at_bary(in float3 a0, in float3 a1, in float3 a2, in flo
 inline float4 attribute_at_bary(in float4 a0, in float4 a1, in float4 a2, in float2 bary)
 {
 	return mad(a0, 1 - bary.x - bary.y, mad(a1, bary.x, a2 * bary.y));
+}
+
+// bilinear interpolation of gathered values based on pixel fraction
+inline float bilinear(float4 gather, float2 pixel_frac)
+{
+	const float top_row = lerp(gather.w, gather.z, pixel_frac.x);
+	const float bottom_row = lerp(gather.x, gather.y, pixel_frac.x);
+	return lerp(top_row, bottom_row, pixel_frac.y);
 }
 
 inline bool is_saturated(float a) { return a == saturate(a); }
@@ -612,9 +696,9 @@ float noise_gradient_3D(in float3 p)
 // Based on: https://www.shadertoy.com/view/MslGD8
 float2 hash_voronoi(float2 p)
 {
-    //p = mod(p, 4.0); // tile
+	//p = mod(p, 4.0); // tile
 	p = float2(dot(p, float2(127.1, 311.7)),
-             dot(p, float2(269.5, 183.3)));
+			 dot(p, float2(269.5, 183.3)));
 	return frac(sin(p) * 18.5453);
 }
 
@@ -1549,43 +1633,60 @@ enum class ColorSpace
 
 
 static const uint NUM_PARALLAX_OCCLUSION_STEPS = 32;
+static const float NUM_PARALLAX_OCCLUSION_STEPS_RCP = 1.0 / NUM_PARALLAX_OCCLUSION_STEPS;
 inline void ParallaxOcclusionMapping_Impl(
 	inout float4 uvsets,		// uvsets to modify
 	in float3 V,				// view vector (pointing towards camera)
 	in float3x3 TBN,			// tangent basis matrix (same that is used for normal mapping)
-	in ShaderMaterial material,	// material parameters
+	in float strength,			// material parameters
 	in Texture2D tex,			// displacement map texture
 	in float2 uv,				// uv to use for the displacement map
 	in float2 uv_dx,			// horizontal derivative of displacement map uv
-	in float2 uv_dy				// vertical derivative of displacement map uv
+	in float2 uv_dy,			// vertical derivative of displacement map uv
+	in SamplerState sam = sampler_linear_wrap
 )
 {
 	[branch]
-	if (material.parallaxOcclusionMapping > 0)
+	if (strength <= 0)
+		return;
+		
+	TBN[0] = normalize(TBN[0]);
+	TBN[1] = normalize(TBN[1]);
+	TBN[2] = normalize(TBN[2]);
+	V = normalize(mul(TBN, V));
+	float curLayerHeight = 0;
+	float2 dtex = strength * V.xy * NUM_PARALLAX_OCCLUSION_STEPS_RCP;
+	float2 currentTextureCoords = uv;
+	float heightFromTexture = 1 - tex.SampleGrad(sam, currentTextureCoords, uv_dx, uv_dy).r;
+	uint iter = 0;
+	[loop]
+	while (heightFromTexture > curLayerHeight && iter < NUM_PARALLAX_OCCLUSION_STEPS)
 	{
-		V = mul(TBN, V);
-		float layerHeight = 1.0 / NUM_PARALLAX_OCCLUSION_STEPS;
-		float curLayerHeight = 0;
-		float2 dtex = material.parallaxOcclusionMapping * V.xy / NUM_PARALLAX_OCCLUSION_STEPS;
-		float2 currentTextureCoords = uv;
-		float heightFromTexture = 1 - tex.SampleGrad(sampler_linear_wrap, currentTextureCoords, uv_dx, uv_dy).r;
-		uint iter = 0;
-		[loop]
-		while (heightFromTexture > curLayerHeight && iter < NUM_PARALLAX_OCCLUSION_STEPS)
-		{
-			curLayerHeight += layerHeight;
-			currentTextureCoords -= dtex;
-			heightFromTexture = 1 - tex.SampleGrad(sampler_linear_wrap, currentTextureCoords, uv_dx, uv_dy).r;
-			iter++;
-		}
-		float2 prevTCoords = currentTextureCoords + dtex;
-		float nextH = heightFromTexture - curLayerHeight;
-		float prevH = 1 - tex.SampleGrad(sampler_linear_wrap, prevTCoords, uv_dx, uv_dy).r - curLayerHeight + layerHeight;
-		float weight = nextH / (nextH - prevH);
-		float2 finalTextureCoords = mad(prevTCoords, weight, currentTextureCoords * (1.0 - weight));
-		float2 difference = finalTextureCoords - uv;
-		uvsets += difference.xyxy;
+		curLayerHeight += NUM_PARALLAX_OCCLUSION_STEPS_RCP;
+		currentTextureCoords -= dtex;
+		heightFromTexture = 1 - tex.SampleGrad(sam, currentTextureCoords, uv_dx, uv_dy).r;
+		iter++;
 	}
+	float2 prevTCoords = currentTextureCoords + dtex;
+	float nextH = heightFromTexture - curLayerHeight;
+	float prevH = 1 - tex.SampleGrad(sam, prevTCoords, uv_dx, uv_dy).r - curLayerHeight + NUM_PARALLAX_OCCLUSION_STEPS_RCP;
+	float weight = nextH / (nextH - prevH);
+	float2 finalTextureCoords = mad(prevTCoords, weight, currentTextureCoords * (1.0 - weight));
+	float2 difference = finalTextureCoords - uv;
+	uvsets += difference.xyxy;
+}
+
+inline float3 get_forward(float4x4 m)
+{
+	return float3(m[2][0], m[2][1], m[2][2]);
+}
+inline float3 get_up(float4x4 m)
+{
+	return float3(m[1][0], m[1][1], m[1][2]);
+}
+inline float3 get_right(float4x4 m)
+{
+	return float3(m[0][0], m[0][1], m[0][2]);
 }
 
 #endif // WI_SHADER_GLOBALS_HF

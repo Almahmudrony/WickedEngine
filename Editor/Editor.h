@@ -4,6 +4,7 @@
 #include "OptionsWindow.h"
 #include "ComponentsWindow.h"
 #include "ProfilerWindow.h"
+#include "ContentBrowserWindow.h"
 #include "IconDefinitions.h"
 
 class EditorLoadingScreen : public wi::LoadingScreen
@@ -46,6 +47,7 @@ public:
 
 	wi::gui::Button saveButton;
 	wi::gui::Button openButton;
+	wi::gui::Button contentBrowserButton;
 	wi::gui::Button logButton;
 	wi::gui::Button profilerButton;
 	wi::gui::Button cinemaButton;
@@ -59,6 +61,7 @@ public:
 	OptionsWindow optionsWnd;
 	ComponentsWindow componentsWnd;
 	ProfilerWindow profilerWnd;
+	ContentBrowserWindow contentBrowserWnd;
 
 	wi::primitive::Ray pickRay;
 	wi::physics::PickDragOperation physicsDragOp;
@@ -136,10 +139,18 @@ public:
 	wi::Archive& AdvanceHistory();
 	void ConsumeHistoryOperation(bool undo);
 
-	void Open(const std::string& filename);
+	wi::vector<std::string> recentFilenames;
+	size_t maxRecentFilenames = 10;
+	wi::vector<std::string> recentFolders;
+	size_t maxRecentFolders = 8;
+	void RegisterRecentlyUsed(const std::string& filename);
+
+	void Open(std::string filename);
 	void Save(const std::string& filename);
 	void SaveAs();
 	bool deleting = false;
+
+	wi::graphics::Texture CreateThumbnailScreenshot() const;
 
 	std::string save_text_message = "";
 	std::string save_text_filename = "";
@@ -209,6 +220,7 @@ enum class EditorLocalization
 	// Top menu:
 	Save,
 	Open,
+	ContentBrowser,
 	Backlog,
 	Profiler,
 	Cinema,
@@ -227,6 +239,7 @@ static const char* EditorLocalizationStrings[] = {
 	// Top menu:
 	"Save",
 	"Open",
+	"Content",
 	"Backlog",
 	"Profiler",
 	"Cinema",

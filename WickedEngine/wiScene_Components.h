@@ -144,6 +144,7 @@ namespace wi::scene
 			SHADERTYPE_PBR_CLOTH,
 			SHADERTYPE_PBR_CLEARCOAT,
 			SHADERTYPE_PBR_CLOTH_CLEARCOAT,
+			SHADERTYPE_PBR_TERRAINBLENDED,
 			SHADERTYPE_COUNT
 		} shaderType = SHADERTYPE_PBR;
 		static_assert(SHADERTYPE_COUNT == SHADERTYPE_BIN_COUNT, "These values must match!");
@@ -159,6 +160,7 @@ namespace wi::scene
 			{"SHEEN"}, // SHADERTYPE_PBR_CLOTH,
 			{"CLEARCOAT"}, // SHADERTYPE_PBR_CLEARCOAT,
 			{"SHEEN", "CLEARCOAT"}, // SHADERTYPE_PBR_CLOTH_CLEARCOAT,
+			{"TERRAINBLENDED"}, //SHADERTYPE_PBR_TERRAINBLENDED
 		};
 		static_assert(SHADERTYPE_COUNT == arraysize(shaderTypeDefines), "These values must match!");
 
@@ -182,6 +184,7 @@ namespace wi::scene
 		float alphaRef = 1.0f;
 		float anisotropy_strength = 0;
 		float anisotropy_rotation = 0; //radians, counter-clockwise
+		float blend_with_terrain_height = 0;
 
 		XMFLOAT4 sheenColor = XMFLOAT4(1, 1, 1, 1);
 		float sheenRoughness = 0;
@@ -1142,6 +1145,7 @@ namespace wi::scene
 		int texture_waterriples_index = -1;
 		int texture_ao_index = -1;
 		int texture_ssr_index = -1;
+		int texture_ssgi_index = -1;
 		int texture_rtshadow_index = -1;
 		int texture_rtdiffuse_index = -1;
 		int texture_surfelgi_index = -1;
@@ -1261,6 +1265,7 @@ namespace wi::scene
 		XMFLOAT4 color;
 		XMFLOAT3 front;
 		float normal_strength;
+		float displacement_strength;
 		XMFLOAT3 position;
 		float range;
 		XMFLOAT4X4 world;
@@ -1269,6 +1274,7 @@ namespace wi::scene
 		wi::Resource texture;
 		wi::Resource normal;
 		wi::Resource surfacemap;
+		wi::Resource displacementmap;
 
 		inline float GetOpacity() const { return color.w; }
 
@@ -1617,7 +1623,7 @@ namespace wi::scene
 			EMPTY = 0,
 			RESET = 1 << 0,
 			DISABLED = 1 << 1,
-			STRETCH_ENABLED = 1 << 2,
+			_DEPRECATED_STRETCH_ENABLED = 1 << 2,
 			GRAVITY_ENABLED = 1 << 3,
 		};
 		uint32_t _flags = RESET | GRAVITY_ENABLED;
@@ -1634,14 +1640,18 @@ namespace wi::scene
 		XMFLOAT3 currentTail = {};
 		XMFLOAT3 boneAxis = {};
 
+		// These are maintained for top-down chained update by spring dependency system:
+		wi::vector<SpringComponent*> children;
+		wi::ecs::Entity entity;
+		TransformComponent* transform = nullptr;
+		TransformComponent* parent_transform = nullptr;
+
 		inline void Reset(bool value = true) { if (value) { _flags |= RESET; } else { _flags &= ~RESET; } }
 		inline void SetDisabled(bool value = true) { if (value) { _flags |= DISABLED; } else { _flags &= ~DISABLED; } }
-		inline void SetStretchEnabled(bool value) { if (value) { _flags |= STRETCH_ENABLED; } else { _flags &= ~STRETCH_ENABLED; } }
 		inline void SetGravityEnabled(bool value) { if (value) { _flags |= GRAVITY_ENABLED; } else { _flags &= ~GRAVITY_ENABLED; } }
 
 		inline bool IsResetting() const { return _flags & RESET; }
 		inline bool IsDisabled() const { return _flags & DISABLED; }
-		inline bool IsStretchEnabled() const { return _flags & STRETCH_ENABLED; }
 		inline bool IsGravityEnabled() const { return _flags & GRAVITY_ENABLED; }
 
 		void Serialize(wi::Archive& archive, wi::ecs::EntitySerializer& seri);
@@ -1925,7 +1935,6 @@ namespace wi::scene
 		constexpr void SetLookAtEnabled(bool value = true) { if (value) { _flags |= LOOKAT; } else { _flags &= ~LOOKAT; } }
 		constexpr void SetRagdollPhysicsEnabled(bool value = true) { if (value) { _flags |= RAGDOLL_PHYSICS; } else { _flags &= ~RAGDOLL_PHYSICS; } }
 
-		XMFLOAT3 default_look_direction = XMFLOAT3(0, 0, 1);
 		XMFLOAT2 head_rotation_max = XMFLOAT2(XM_PI / 3.0f, XM_PI / 6.0f);
 		float head_rotation_speed = 0.1f;
 		XMFLOAT2 eye_rotation_max = XMFLOAT2(XM_PI / 20.0f, XM_PI / 20.0f);

@@ -92,6 +92,8 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)SpriteWindow.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)FontWindow.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)VoxelGridWindow.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)ContentBrowserWindow.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)ModelImporter_FBX.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(MSBuildThisFileDirectory)AnimationWindow.h" />
@@ -148,6 +150,8 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)SpriteWindow.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)FontWindow.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)VoxelGridWindow.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)ContentBrowserWindow.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)ufbx.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory)startup.lua" />
@@ -202,6 +206,69 @@
       <Filter>terrain</Filter>
     </Image>
     <Image Include="$(MSBuildThisFileDirectory)terrain\grassparticle.dds">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\bricks.jpg">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\bricks_nor.jpg">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\darkrock.jpg">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\darkrock_nor.jpg">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\foil.jpg">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\foil_nor.jpg">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\ground.jpg">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\ground_nor.jpg">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\ground2.jpg">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\ground2_nor.jpg">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\lava.jpg">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\lava_emi.jpg">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\lava_nor.jpg">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\metalplate.jpg">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\metalplate_nor.jpg">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\pavingstone.jpg">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\pavingstone_nor.jpg">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\rock.jpg">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\rock_nor.jpg">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\tactilepaving.jpg">
+      <Filter>terrain</Filter>
+    </Image>
+    <Image Include="$(MSBuildThisFileDirectory)terrain\tactilepaving_nor.jpg">
       <Filter>terrain</Filter>
     </Image>
   </ItemGroup>
